@@ -2,6 +2,7 @@ package de.hanslovsky.regionmerging;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Random;
@@ -24,8 +25,12 @@ import com.sun.javafx.application.PlatformImpl;
 
 import bdv.bigcat.viewer.atlas.Atlas;
 import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
-import bdv.img.h5.H5Utils;
+import bdv.img.hdf5.Util;
 import bdv.util.Prefs;
+import ch.systemsx.cisd.hdf5.HDF5DataSetInformation;
+import ch.systemsx.cisd.hdf5.HDF5Factory;
+import ch.systemsx.cisd.hdf5.HDF5StorageLayout;
+import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import de.hanslovsky.graph.edge.EdgeCreator;
 import de.hanslovsky.graph.edge.EdgeCreator.AffinityHistogram;
 import de.hanslovsky.graph.edge.EdgeMerger;
@@ -35,6 +40,8 @@ import de.hanslovsky.graph.edge.EdgeWeight.MedianAffinityWeight;
 import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Data;
 import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Options;
 import de.hanslovsky.regionmerging.DataPreparation.Loader;
+import de.hanslovsky.regionmerging.loader.hdf5.HDF5FloatLoader;
+import de.hanslovsky.regionmerging.loader.hdf5.HDF5LongLoader;
 import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
 import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
@@ -47,14 +54,19 @@ import javafx.application.Platform;
 import javafx.stage.Stage;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
+import net.imglib2.cache.Cache;
+import net.imglib2.cache.img.CachedCellImg;
 import net.imglib2.cache.img.CellLoader;
+import net.imglib2.cache.img.LoadedCellCacheLoader;
+import net.imglib2.cache.ref.SoftRefLoaderCache;
 import net.imglib2.converter.Converter;
 import net.imglib2.converter.Converters;
 import net.imglib2.converter.TypeIdentity;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
-import net.imglib2.img.cell.CellImg;
+import net.imglib2.img.cell.Cell;
+import net.imglib2.img.cell.CellGrid;
 import net.imglib2.type.Type;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.LongType;
@@ -89,10 +101,31 @@ public class RegionMergingExample
 		final String affinitiesPath = "aff";
 		final String superVoxelFile = affinitiesFile;
 		final String superVoxelPath = "seg";
-		final int[] affinitiesChunkSize = { 500, 500, 63, 3 };
-		final int[] superVoxelChunkSize = { 500, 500, 63 };
 
-		final CellImg< FloatType, ? > input = H5Utils.loadFloat( affinitiesFile, affinitiesPath, affinitiesChunkSize );
+		final IHDF5Reader affinitiesLoader = HDF5Factory.openForReading( affinitiesFile );
+		final IHDF5Reader superVoxelLoader = HDF5Factory.openForReading( superVoxelFile );
+
+		final HDF5DataSetInformation affinitiesDataset = affinitiesLoader.getDataSetInformation( affinitiesPath );
+		final HDF5DataSetInformation superVoxelDataset = superVoxelLoader.getDataSetInformation( superVoxelPath );
+
+		final long[] affinitiesDimensions = Util.reorder( affinitiesDataset.getDimensions() );
+		final long[] superVoxelDimensions = Util.reorder( superVoxelDataset.getDimensions() );
+
+		final int[] affinitiesChunkSize = affinitiesDataset.getStorageLayout().equals( HDF5StorageLayout.CHUNKED ) ? Util.reorder( affinitiesDataset.tryGetChunkSizes() ) : Arrays.stream( affinitiesDimensions ).mapToInt( l -> ( int ) l ).toArray();
+		final int[] superVoxelChunkSize = superVoxelDataset.getStorageLayout().equals( HDF5StorageLayout.CHUNKED ) ? Util.reorder( superVoxelDataset.tryGetChunkSizes() ) : Arrays.stream( superVoxelDimensions ).mapToInt( l -> ( int ) l ).toArray();
+
+		final CellGrid affinitiesGrid = new CellGrid( affinitiesDimensions, affinitiesChunkSize );
+		final CellGrid superVoxelGrid = new CellGrid( superVoxelDimensions, superVoxelChunkSize );
+
+		final HDF5FloatLoader affinitiesCellLoader = new HDF5FloatLoader( affinitiesLoader.float32(), affinitiesPath );
+		final HDF5LongLoader superVoxelCellLoader = new HDF5LongLoader( superVoxelLoader.uint64(), superVoxelPath );
+
+		final Cache< Long, Cell< FloatArray > > affinitiesCache = new SoftRefLoaderCache< Long, Cell< FloatArray > >().withLoader( LoadedCellCacheLoader.get( affinitiesGrid, affinitiesCellLoader, new FloatType() ) );
+		final Cache< Long, Cell< LongArray > > superVoxelCache = new SoftRefLoaderCache< Long, Cell< LongArray > >().withLoader( LoadedCellCacheLoader.get( superVoxelGrid, superVoxelCellLoader, new LongType() ) );
+
+		final RandomAccessibleInterval< FloatType > input = new CachedCellImg<>( affinitiesGrid, new FloatType(), affinitiesCache, new FloatArray( 1 ) );
+		final RandomAccessibleInterval< LongType > labels = new CachedCellImg<>( superVoxelGrid, new LongType(), superVoxelCache, new LongArray( 1 ) );
+
 		System.out.println( "Loaded affinities from " + affinitiesFile + "/" + affinitiesFile );
 		final RandomAccessibleInterval< FloatType > affs = ArrayImgs.floats( Intervals.dimensionsAsLongArray( input ) );
 
@@ -106,7 +139,6 @@ public class RegionMergingExample
 			for ( final RealComposite< FloatType > aff : Views.hyperSlice( Views.collapseReal( affs ), d, 0l ) )
 				aff.get( d ).set( Float.NaN );
 
-		final RandomAccessibleInterval< LongType > labels = H5Utils.loadUnsignedLong( superVoxelFile, superVoxelPath, superVoxelChunkSize );
 		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
 
 
