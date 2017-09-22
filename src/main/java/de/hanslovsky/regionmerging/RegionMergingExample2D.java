@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Random;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
@@ -65,6 +65,7 @@ import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
 import net.imglib2.view.Views;
 import net.imglib2.view.composite.RealComposite;
+import scala.Tuple2;
 
 public class RegionMergingExample2D
 {
@@ -209,9 +210,9 @@ public class RegionMergingExample2D
 
 		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
 
-		final Consumer< JavaPairRDD< HashWrapper< long[] >, TLongArrayList > > mergesLogger = rdd -> {
+		final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger = ( i, rdd ) -> {
 			final TLongArrayList merges = new TLongArrayList();
-			rdd.values().collect().forEach( merges::addAll );
+			rdd.values().collect().stream().map( Tuple2::_1 ).forEach( merges::addAll );
 			final int newIndex = mergesLog.size();
 			mergesLog.put( newIndex, merges );
 		};

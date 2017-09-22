@@ -3,12 +3,16 @@ package de.hanslovsky.regionmerging;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map.Entry;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.serializer.KryoRegistrator;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.AccumulatorV2;
@@ -30,23 +34,31 @@ import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Data;
 import de.hanslovsky.regionmerging.DataPreparation.Loader;
 import de.hanslovsky.regionmerging.loader.hdf5.HDF5FloatLoader;
 import de.hanslovsky.regionmerging.loader.hdf5.HDF5LongLoader;
+import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
 import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
+import net.imglib2.Cursor;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.cache.img.CellLoader;
+import net.imglib2.img.array.ArrayImg;
+import net.imglib2.img.array.ArrayImgFactory;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.img.cell.CellGrid;
+import net.imglib2.type.NativeType;
 import net.imglib2.type.Type;
+import net.imglib2.type.numeric.IntegerType;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
 import net.imglib2.view.Views;
+import scala.Tuple2;
 
 public class AgglomerateAndLog
 {
@@ -70,7 +82,8 @@ public class AgglomerateAndLog
 			final String superVoxelPath,
 			final EdgeCreator creator,
 			final EdgeMerger merger,
-			final EdgeWeight edgeWeight )
+			final EdgeWeight edgeWeight,
+			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger )
 	{
 
 		final IHDF5Reader affinitiesLoader = HDF5Factory.openForReading( affinitiesFile );
@@ -105,12 +118,12 @@ public class AgglomerateAndLog
 
 		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
 
-		final Consumer< JavaPairRDD< HashWrapper< long[] >, TLongArrayList > > mergesLogger = rdd -> {
-			final TLongArrayList merges = new TLongArrayList();
-			rdd.values().collect().forEach( merges::addAll );
-			final int newIndex = mergesLog.size();
-			mergesLog.put( newIndex, merges );
-		};
+//		final Consumer< JavaPairRDD< HashWrapper< long[] >, TLongArrayList > > mergesLogger = rdd -> {
+//			final TLongArrayList merges = new TLongArrayList();
+//			rdd.values().collect().forEach( merges::addAll );
+//			final int newIndex = mergesLog.size();
+//			mergesLog.put( newIndex, merges );
+//		};
 
 		System.out.println( "Start agglomerating!" );
 		rm.agglomerate( sc, blockedGraph, mergesLogger, options );
@@ -186,14 +199,6 @@ public class AgglomerateAndLog
 			return new FloatArray( 0 );
 		}
 
-	}
-
-	public static int[] getFlipPermutation( final int numDimensions )
-	{
-		final int[] perm = new int[ numDimensions ];
-		for ( int d = 0, flip = numDimensions - 1; d < numDimensions; ++d, --flip )
-			perm[ d ] = flip;
-		return perm;
 	}
 
 	public static < T extends Type< T > > void burnIn( final RandomAccessible< T > source, final RandomAccessibleInterval< T > target )
@@ -277,6 +282,83 @@ public class AgglomerateAndLog
 					nonContractingEdges,
 					counts );
 		}
+	}
+
+	public static class ApplyMergesAndWriteImages< I extends IntegerType< I > & NativeType< I > > implements BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > >
+	{
+
+		private JavaPairRDD< HashWrapper< long[] >, RandomAccessibleInterval< I > > currentLabeling;
+
+		private final BiFunction< long[], Integer, long[][] > mapToOriginalIndices;
+
+		private final BiFunction< long[], Integer, Consumer< RandomAccessibleInterval< I > > > saver;
+
+		public ApplyMergesAndWriteImages(
+				final JavaPairRDD< HashWrapper< long[] >, RandomAccessibleInterval< I > > currentLabeling,
+				final BiFunction< long[], Integer, long[][] > mapToOriginalIndices,
+				final BiFunction< long[], Integer, Consumer< RandomAccessibleInterval< I > > > saver )
+		{
+			super();
+			this.currentLabeling = currentLabeling;
+			this.mapToOriginalIndices = mapToOriginalIndices;
+			this.saver = saver;
+		}
+
+		@Override
+		public void accept( final Integer iteration, final JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > merges )
+		{
+			final JavaPairRDD< HashWrapper< long[] >, RandomAccessibleInterval< I > > labelingTmp = currentLabeling
+					.join( merges.flatMapToPair( new FlatMapIndicesToOriginal( iteration, mapToOriginalIndices ) ) )
+					.mapValues( imageAndMerges -> {
+						final RandomAccessibleInterval< I > image = imageAndMerges._1();
+						final ArrayImgFactory< I > af = new ArrayImgFactory<>();
+						final I type = net.imglib2.util.Util.getTypeFromInterval( image ).createVariable();
+						final ArrayImg< I, ? > target = af.create( Intervals.dimensionsAsLongArray( image ), type );
+						target.setLinkedType( type );
+
+						final HashMapStoreUnionFind unionFind = imageAndMerges._2()._2();
+						for ( Cursor< I > s = Views.flatIterable( image ).cursor(), t = target.cursor(); t.hasNext(); )
+							t.next().setInteger(unionFind.findRoot( s.next().getIntegerLong() ) );
+						return target;
+					} );
+			labelingTmp.cache();
+
+			labelingTmp.map( t -> {
+				final Consumer< RandomAccessibleInterval< I > > localSaver = saver.apply( t._1().getData(), iteration );
+				localSaver.accept( t._2() );
+				return true;
+			} ).collect();
+
+			currentLabeling.unpersist();
+
+			currentLabeling = labelingTmp;
+
+
+		}
+
+		public static class FlatMapIndicesToOriginal implements PairFlatMapFunction< Tuple2< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > >, HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > >
+		{
+
+			private final int iteration;
+
+			private final BiFunction< long[], Integer, long[][] > mapToOriginalIndices;
+
+			public FlatMapIndicesToOriginal( final int iteration, final BiFunction< long[], Integer, long[][] > mapToOriginalIndices )
+			{
+				super();
+				this.iteration = iteration;
+				this.mapToOriginalIndices = mapToOriginalIndices;
+			}
+
+			@Override
+			public Iterator< Tuple2< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > call( final Tuple2< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > mergeList ) throws Exception
+			{
+				return Arrays.stream( mapToOriginalIndices.apply( mergeList._1().getData(), iteration ) ).map( HashWrapper::longArray ).map( hash -> new Tuple2<>( hash, mergeList._2() ) ).iterator();
+			}
+
+		}
+
+
 	}
 
 	public static class MergeNotifyGenerator implements IntFunction< MergeNotifyWithFinishNotification >, Serializable
