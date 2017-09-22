@@ -5,6 +5,7 @@ import java.util.Arrays;
 import bdv.img.hdf5.Util;
 import ch.systemsx.cisd.base.mdarray.MDFloatArray;
 import ch.systemsx.cisd.hdf5.IHDF5FloatReader;
+import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import net.imglib2.cache.img.CellLoader;
 import net.imglib2.img.Img;
 import net.imglib2.type.numeric.real.FloatType;
@@ -17,10 +18,10 @@ public class HDF5FloatLoader implements CellLoader< FloatType >
 
 	private final String dataset;
 
-	public HDF5FloatLoader( final IHDF5FloatReader reader, final String dataset )
+	public HDF5FloatLoader( final IHDF5Reader reader, final String dataset )
 	{
 		super();
-		this.reader = reader;
+		this.reader = reader.float32();
 		this.dataset = dataset;
 	}
 

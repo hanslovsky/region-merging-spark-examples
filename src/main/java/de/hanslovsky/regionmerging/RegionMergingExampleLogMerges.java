@@ -1,19 +1,23 @@
 package de.hanslovsky.regionmerging;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map.Entry;
-import java.util.Random;
 import java.util.function.BiConsumer;
 import java.util.function.IntFunction;
-import java.util.stream.Stream;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.Optional;
+import org.apache.spark.api.java.function.Function;
 import org.apache.spark.serializer.KryoRegistrator;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.AccumulatorV2;
@@ -22,12 +26,7 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import com.sun.javafx.application.PlatformImpl;
 
-import bdv.bigcat.viewer.atlas.Atlas;
-import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
-import bdv.img.h5.H5Utils;
-import bdv.util.Prefs;
 import de.hanslovsky.graph.edge.EdgeCreator;
 import de.hanslovsky.graph.edge.EdgeCreator.AffinityHistogram;
 import de.hanslovsky.graph.edge.EdgeMerger;
@@ -36,49 +35,39 @@ import de.hanslovsky.graph.edge.EdgeWeight;
 import de.hanslovsky.graph.edge.EdgeWeight.MedianAffinityWeight;
 import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Data;
 import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Options;
+import de.hanslovsky.regionmerging.loader.hdf5.AffinitiesAndLabelsFromH5;
+import de.hanslovsky.regionmerging.loader.hdf5.LoaderFromLoaders;
 import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
 import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TIntObjectHashMap;
-import gnu.trove.map.hash.TLongIntHashMap;
 import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
-import javafx.application.Platform;
-import javafx.stage.Stage;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
-import net.imglib2.cache.img.CellLoader;
-import net.imglib2.converter.Converter;
-import net.imglib2.converter.Converters;
-import net.imglib2.converter.TypeIdentity;
-import net.imglib2.img.array.ArrayImgs;
-import net.imglib2.img.cell.CellImg;
+import net.imglib2.img.basictypeaccess.array.FloatArray;
+import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.type.Type;
-import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
-import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
 import net.imglib2.view.Views;
-import net.imglib2.view.composite.RealComposite;
 import scala.Tuple2;
 
-public class RegionMergingExample2D
+public class RegionMergingExampleLogMerges
 {
 
 	public static String HOME_DIR = System.getProperty( "user.home" );
 
-	public static void main( final String[] args )
+	public static void main( final String[] args ) throws IOException
 	{
-		final Optional< String > rawFile = Optional.empty();
-		final Optional< String > rawPath = Optional.empty();
-		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
-		final String affinitiesPath = "main";
-		final String superVoxelFile = affinitiesFile;
-		final String superVoxelPath = "zws";
-		final int[] affinitiesChunkSize = { 300, 300, 100, 3 };
-		final int[] superVoxelChunkSize = { 300, 300, 100 };
+//		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
+//		final String affinitiesPath = "main";
+//		final String superVoxelFile = affinitiesFile;
+//		final String superVoxelPath = "zws";
+//		final int[] affinitiesChunkSize = { 300, 300, 100, 3 };
+//		final int[] superVoxelChunkSize = { 300, 300, 100 };
 
 //		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/raw-and-affinities.h5";
 //		final String affinitiesPath = "volumes/predicted_affs";
@@ -87,79 +76,17 @@ public class RegionMergingExample2D
 //		final int[] affinitiesChunkSize = { 1461, 1578, 63, 3 };
 //		final int[] superVoxelChunkSize = { 84, 90, 2 };
 
-//		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
-//		final String affinitiesPath = "aff";
-//		final String superVoxelFile = affinitiesFile;
-//		final String superVoxelPath = "seg";
-//		final int[] affinitiesChunkSize = { 500, 500, 63, 3 };
-//		final int[] superVoxelChunkSize = { 500, 500, 63 };
+		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
+		final String affinitiesPath = "aff";
+		final String superVoxelFile = affinitiesFile;
+		final String superVoxelPath = "seg";
 
-		final long slice = 9;
+		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > loader = AffinitiesAndLabelsFromH5.get( affinitiesFile, affinitiesPath, superVoxelFile, superVoxelPath, true );
 
-		final CellImg< FloatType, ? > input = H5Utils.loadFloat( affinitiesFile, affinitiesPath, affinitiesChunkSize );
-		System.out.println( "Loaded affinities from " + affinitiesFile + "/" + affinitiesFile );
-		final long[] affsDim = Intervals.dimensionsAsLongArray( input );
-		affsDim[ 2 ] = 1;
-		final RandomAccessibleInterval< FloatType > affs = ArrayImgs.floats( affsDim );
+		final int stepSizeZ = 63;
 
-		final int[] perm = getFlipPermutation( input.numDimensions() - 1 );
-		final RandomAccessibleInterval< FloatType > inputPerm = Views.permuteCoordinates( input, perm, input.numDimensions() - 1 );
-
-		final long offset[] = new long[ 4 ];
-		offset[ 2 ] = slice;
-		for ( final Pair< FloatType, FloatType > p : Views.interval( Views.pair( Views.offsetInterval( inputPerm, offset, affsDim ), affs ), affs ) )
-			p.getB().set( p.getA() );
-
-		for ( int d = 0; d < 3; ++d )
-			for ( final RealComposite< FloatType > aff : Views.hyperSlice( Views.collapseReal( affs ), d, 0l ) )
-				aff.get( d ).set( Float.NaN );
-
-//		for ( final RealComposite< FloatType > col : Views.flatIterable( Views.collapseReal( affs ) ) )
-//			col.get( 2 ).setReal( Float.NaN );
-
-		final RandomAccessibleInterval< LongType > labels = Views.offsetInterval( H5Utils.loadUnsignedLong( superVoxelFile, superVoxelPath, superVoxelChunkSize ), new long[] { 0, 0, slice }, new long[] { affsDim[ 0 ], affsDim[ 1 ], 1 } );
-		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
-
-
-		final Random rng = new Random( 100 );
-		final TLongIntHashMap colors = new TLongIntHashMap();
-		for ( final LongType l : Views.flatIterable( labels ) )
-			if ( !colors.contains( l.get() ) )
-			{
-				final int r = rng.nextInt( 255 );// + 255 - 100;
-				final int g = rng.nextInt( 255 );// + 255 - 100;
-				final int b = rng.nextInt( 255 );// + 255 - 100;
-				colors.put( l.get(), 0xff << 24 | r << 16 | g << 8 | b << 0 );
-			}
-		colors.put( 0, 0 );
-
-		final RandomAccessibleInterval< ARGBType > rgbAffs = Converters.convert( Views.collapseReal( affs ), ( s, t ) -> {
-			t.set( ARGBType.rgba( 255 * ( 1 - s.get( 0 ).get() ), 255 * ( 1 - s.get( 1 ).get() ), 255, 255.0 ) );
-		}, new ARGBType() );
-		final double factor = 1.0;// 0.52;
-
-		final double[][] resolution = { { 1.0, 1.0, 10.0 } };
-
-		Prefs.showMultibox( false );
-		Prefs.showTextOverlay( false );
-
-		final Converter< LongType, ARGBType > colorConv = ( s, t ) -> {
-			t.set( colors.get( s.get() ) );
-		};
-
-		PlatformImpl.startup( () -> {} );
-		final Atlas atlas = new Atlas( labels );
-		Platform.runLater( () -> {
-			final Stage stage = new Stage();
-			atlas.start( stage );
-			stage.show();
-			final RandomAccessibleIntervalSpec< ARGBType, ARGBType > spec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { rgbAffs }, new RandomAccessibleInterval[] { rgbAffs }, resolution, null, "affs" );
-			atlas.addARGB( spec );
-
-			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( labels, colorConv, new ARGBType() );
-			final RandomAccessibleIntervalSpec< ?, ARGBType > voxelSpec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { labels }, new RandomAccessibleInterval[] { colored }, resolution, null, "super voxels " );
-			atlas.addARGB( voxelSpec );
-		} );
+		final int[] blockSize = Arrays.stream( loader.labelGrid().getImgDimensions() ).mapToInt( l -> ( int ) l ).toArray();
+		blockSize[ 2 ] = stepSizeZ;
 
 		final int nBins = 256;
 		final AffinityHistogram creator = new EdgeCreator.AffinityHistogram( nBins, 0.0, 1.0 );
@@ -170,18 +97,6 @@ public class RegionMergingExample2D
 //		final MIN_AFFINITY_MERGER merger = new EdgeMerger.MIN_AFFINITY_MERGER();
 //		final EdgeWeight edgeWeight = new EdgeWeight.OneMinusAffinity();
 
-		final long[] dimensions = Intervals.dimensionsAsLongArray( labels );
-		System.out.println( "DIMENSIONS " + Arrays.toString( dimensions ) );
-		final int[] blockSize = { ( int ) dimensions[ 0 ], ( int ) dimensions[ 1 ], 1 };
-
-		final CellLoader< LongType > ll = cell -> {
-			burnIn( labels, cell );
-		};
-
-		final CellLoader< FloatType > al = cell -> {
-			burnIn( affs, cell );
-		};
-
 		final SparkConf conf = new SparkConf()
 				.setMaster( "local[*]" )
 				.setAppName( DataPreparation.class.toString() )
@@ -190,86 +105,40 @@ public class RegionMergingExample2D
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
 
-		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, new RegionMergingExample.FloatAndLongLoader( dimensions, blockSize, ll, al ), creator, merger, blockSize );
+		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, loader, creator, merger, blockSize );
 		graph.cache();
-		final long nBlocks = graph.count();
-		System.out.println( "Starting with " + nBlocks + " blocks." );
 
-		final MergesAccumulator accu = new MergesAccumulator();
-		sc.sc().register( accu, "mergesAccumulator" );
-
-		final IntFunction< MergeNotifyWithFinishNotification > mergeNotifyGenerator = new MergeNotifyGenerator( accu );
-
+		final IntFunction< MergeNotifyWithFinishNotification > mergeNotifyGenerator = new LazyMergeNotify.Generator();
 
 		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, mergeNotifyGenerator, 2 );
 
 		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
 
-		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
+		final String outputFileName = "log-" + stepSizeZ;
+		Files.deleteIfExists( new File( outputFileName ).toPath() );
+		Files.createFile( Paths.get( outputFileName ) );
 
 		final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger = ( i, rdd ) -> {
-			final TLongArrayList merges = new TLongArrayList();
-			rdd.values().collect().stream().map( Tuple2::_1 ).forEach( merges::addAll );
-			final int newIndex = mergesLog.size();
-			mergesLog.put( newIndex, merges );
+			final List< String > strings = rdd.mapValues( new GetFirst<>() ).mapValues( new MergesToCSVString() ).values().collect();
+
+			final Path path = Paths.get( outputFileName );
+			strings.forEach( str -> {
+				try
+				{
+					Files.write( path, str.getBytes(), StandardOpenOption.APPEND );
+				}
+				catch ( final IOException e1 )
+				{
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+			} );
+
 		};
 
 		System.out.println( "Start agglomerating!" );
 		rm.agglomerate( sc, graph, mergesLogger, options );
 		System.out.println( "Done agglomerating!" );
-
-		final TIntObjectHashMap< TLongArrayList > merges = accu.value();
-
-		final HashMapStoreUnionFind[] ufs = Stream.generate( HashMapStoreUnionFind::new ).limit( merges.size() ).toArray( HashMapStoreUnionFind[]::new );
-
-		for ( int iteration = 0; iteration < ufs.length; ++iteration )
-		{
-
-			final TLongArrayList list = merges.get( iteration );
-
-			System.out.println( "Got " + list.size() / 4 + " merges!" );
-
-			for ( int ufIndex = iteration; ufIndex < ufs.length; ++ufIndex )
-			{
-
-				final HashMapStoreUnionFind uf = ufs[ ufIndex ];
-				for ( int i = 0; i < list.size(); i += 4 )
-				{
-					final long r1 = uf.findRoot( list.get( i + 0 ) );
-					final long r2 = uf.findRoot( list.get( i + 1 ) );
-//				System.out.println( list.get( i ) + " " + list.get( i + 1 ) + " " + r1 + " " + r2 );
-					if ( r1 != r2 )
-						uf.join( r1, r2 );
-				}
-			}
-		}
-
-//		final TLongArrayList list = mergesLog.get( 0 );
-//		System.out.println( "Got " + lst.size() / 2 + " merges!" );
-//		for ( int i = 0; i < list.size(); i += 2 )
-//		{
-//			final long r1 = uf.findRoot( list.get( i + 0 ) );
-//			final long r2 = uf.findRoot( list.get( i + 1 ) );
-////			System.out.println( list.get( i ) + " " + list.get( i + 1 ) + " " + r1 + " " + r2 );
-//			if ( r1 != r2 )
-//				uf.join( r1, r2 );
-//		}
-
-		final ArrayList< RandomAccessibleIntervalSpec< LongType, ARGBType > > raiSpecs = new ArrayList<>();
-
-		for ( int i = 0; i < ufs.length; ++i )
-		{
-			final HashMapStoreUnionFind uf = ufs[ i ];
-			final RandomAccessibleInterval< LongType > firstJoined = Converters.convert( labels, ( s, t ) -> {
-				t.set( uf.findRoot( s.get() ) );
-			}, new LongType() );
-			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( firstJoined, colorConv, new ARGBType() );
-			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { colored }, resolution, null, "iteration " + i ) );
-		}
-
-		Platform.runLater( () -> {
-			raiSpecs.forEach( atlas::addARGB );
-		} );
 
 
 
@@ -298,6 +167,8 @@ public class RegionMergingExample2D
 //			kryo.register( HashMap.class );
 //			kryo.register( TIntHashSet.class, new TIntHashSetSerializer() );
 			kryo.register( Data.class, new DataSerializer() );
+			kryo.register( LazyMergeNotify.class );
+			kryo.register( LazyMergeNotify.Generator.class );
 //			kryo.register( TDoubleArrayList.class, new TDoubleArrayListSerializer() );
 //			kryo.register( TLongLongHashMap.class, new TLongLongHashMapListSerializer() );
 //			kryo.register( HashWrapper.class, new HashWrapperSerializer<>() );
@@ -487,6 +358,65 @@ public class RegionMergingExample2D
 			}
 		}
 
+	}
+
+	public static class GetFirst< T, U > implements Function< Tuple2< T, U >, T >
+	{
+
+		@Override
+		public T call( final Tuple2< T, U > v1 ) throws Exception
+		{
+			return v1._1();
+		}
+
+	}
+
+	public static class MergesToCSVString implements Function< TLongArrayList, String >
+	{
+
+		@Override
+		public String call( final TLongArrayList merges ) throws Exception
+		{
+			final int step = 4;
+			final StringBuilder sb = new StringBuilder();
+			for ( int index = 0; index < merges.size(); index += step )
+				sb
+				.append( Double.longBitsToDouble( merges.get( index + 1 ) ) )
+				.append( "," )
+				.append( merges.get( index + 2 ) )
+				.append( "," )
+				.append( merges.get( index + 3 ) )
+				.append( System.lineSeparator() );
+			return sb.toString();
+		}
+
+	}
+
+	public static class LazyMergeNotify implements MergeNotifyWithFinishNotification
+	{
+
+		public static class Generator implements IntFunction< MergeNotifyWithFinishNotification >, Serializable
+		{
+
+			@Override
+			public MergeNotifyWithFinishNotification apply( final int value )
+			{
+				return new LazyMergeNotify();
+			}
+
+		}
+
+		@Override
+		public void addMerge( final long node1, final long node2, final long newNode, final double weight )
+		{
+
+		}
+
+		@Override
+		public void notifyDone()
+		{
+
+		}
 	}
 
 }

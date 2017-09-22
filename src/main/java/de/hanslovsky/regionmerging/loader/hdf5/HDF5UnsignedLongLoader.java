@@ -5,6 +5,7 @@ import java.util.Arrays;
 import bdv.img.hdf5.Util;
 import ch.systemsx.cisd.base.mdarray.MDLongArray;
 import ch.systemsx.cisd.hdf5.IHDF5LongReader;
+import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import net.imglib2.cache.img.CellLoader;
 import net.imglib2.img.Img;
 import net.imglib2.type.numeric.integer.UnsignedLongType;
@@ -17,10 +18,10 @@ public class HDF5UnsignedLongLoader implements CellLoader< UnsignedLongType >
 
 	private final String dataset;
 
-	public HDF5UnsignedLongLoader( final IHDF5LongReader reader, final String dataset )
+	public HDF5UnsignedLongLoader( final IHDF5Reader reader, final String dataset )
 	{
 		super();
-		this.reader = reader;
+		this.reader = reader.uint64();
 		this.dataset = dataset;
 	}
 

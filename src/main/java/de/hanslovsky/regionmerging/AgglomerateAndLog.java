@@ -8,13 +8,13 @@ import java.util.Map.Entry;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.serializer.KryoRegistrator;
-import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.AccumulatorV2;
 
 import com.esotericsoftware.kryo.Kryo;
@@ -22,18 +22,14 @@ import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
-import bdv.img.hdf5.Util;
-import ch.systemsx.cisd.hdf5.HDF5DataSetInformation;
-import ch.systemsx.cisd.hdf5.HDF5Factory;
-import ch.systemsx.cisd.hdf5.HDF5StorageLayout;
-import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import de.hanslovsky.graph.edge.EdgeCreator;
 import de.hanslovsky.graph.edge.EdgeMerger;
 import de.hanslovsky.graph.edge.EdgeWeight;
 import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Data;
+import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Options;
 import de.hanslovsky.regionmerging.DataPreparation.Loader;
-import de.hanslovsky.regionmerging.loader.hdf5.HDF5FloatLoader;
-import de.hanslovsky.regionmerging.loader.hdf5.HDF5LongLoader;
+import de.hanslovsky.regionmerging.loader.hdf5.AffinitiesAndLabelsFromH5;
+import de.hanslovsky.regionmerging.loader.hdf5.LoaderFromLoaders;
 import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
 import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
@@ -44,15 +40,16 @@ import gnu.trove.set.hash.TIntHashSet;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
-import net.imglib2.cache.img.CellLoader;
 import net.imglib2.img.array.ArrayImg;
 import net.imglib2.img.array.ArrayImgFactory;
+import net.imglib2.img.basictypeaccess.array.ArrayDataAccess;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.img.cell.CellGrid;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.Type;
 import net.imglib2.type.numeric.IntegerType;
+import net.imglib2.type.numeric.RealType;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.util.Intervals;
@@ -65,16 +62,16 @@ public class AgglomerateAndLog
 
 	public static String HOME_DIR = System.getProperty( "user.home" );
 
-	public static void main( final String[] args )
-	{
+//	public static void main( final String[] args )
+//	{
+//
+//		final String affinitiesFile = args[ 0 ];
+//		final String affinitiesPath = args[ 1 ];
+//		final String superVoxelFile = args[ 2 ];
+//		final String superVoxelPath = args[ 3 ];
+//	}
 
-		final String affinitiesFile = args[ 0 ];
-		final String affinitiesPath = args[ 1 ];
-		final String superVoxelFile = args[ 2 ];
-		final String superVoxelPath = args[ 3 ];
-	}
-
-	public static void run(
+	public static void runFromH5(
 			final JavaSparkContext sc,
 			final String affinitiesFile,
 			final String affinitiesPath,
@@ -83,30 +80,64 @@ public class AgglomerateAndLog
 			final EdgeCreator creator,
 			final EdgeMerger merger,
 			final EdgeWeight edgeWeight,
+			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger,
+			final Function< CellGrid, int[] > blockSize,
+			final BlockedRegionMergingSpark.Options options )
+	{
+		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > loader = AffinitiesAndLabelsFromH5.get( affinitiesFile, affinitiesPath, superVoxelFile, superVoxelPath, true );
+		final JavaPairRDD< HashWrapper< long[] >, Data > blockedGraph = DataPreparation.createGraphPointingBackwards( sc, loader, creator, merger, blockSize.apply( loader.labelGrid() ) ); // er
+		blockedGraph.persist( options.persistenceLevel() );
+		run( sc, blockedGraph, loader, creator, merger, edgeWeight, options, mergesLogger );
+		blockedGraph.unpersist();
+	}
+
+	public static void runFromH5(
+			final JavaSparkContext sc,
+			final String affinitiesFile,
+			final String affinitiesPath,
+			final String superVoxelFile,
+			final String superVoxelPath,
+			final EdgeCreator creator,
+			final EdgeMerger merger,
+			final EdgeWeight edgeWeight,
+			final Function< CellGrid, int[] > blockSize,
+			final BlockedRegionMergingSpark.Options options,
+			final double[] thresholds,
+			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > >[] mergesLogger )
+	{
+		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > loader = AffinitiesAndLabelsFromH5.get( affinitiesFile, affinitiesPath, superVoxelFile, superVoxelPath, true );
+		final JavaPairRDD< HashWrapper< long[] >, Data > blockedGraph = DataPreparation.createGraphPointingBackwards( sc, loader, creator, merger, blockSize.apply( loader.labelGrid() ) ); // er
+		blockedGraph.persist( options.persistenceLevel() );
+		run( sc, blockedGraph, loader, creator, merger, edgeWeight, options, thresholds, mergesLogger );
+		blockedGraph.unpersist();
+	}
+
+	public static < LABEL extends IntegerType< LABEL > & NativeType< LABEL >, AFF extends RealType< AFF > & NativeType< AFF >, LABEL_A extends ArrayDataAccess< LABEL_A >, AFF_A extends ArrayDataAccess< AFF_A > > void run(
+			final JavaSparkContext sc,
+			final JavaPairRDD< HashWrapper< long[] >, Data > blockedGraph,
+			final Loader< LABEL, AFF, LABEL_A, AFF_A > loader,
+			final EdgeCreator creator,
+			final EdgeMerger merger,
+			final EdgeWeight edgeWeight,
+			final BlockedRegionMergingSpark.Options options,
 			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger )
 	{
+		final double[] thresholds = new double[] { options.threshold() };
+		final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > >[] loggers = new BiConsumer[] { mergesLogger };
+		run( sc, blockedGraph, loader, creator, merger, edgeWeight, options, thresholds, loggers );
+	}
 
-		final IHDF5Reader affinitiesLoader = HDF5Factory.openForReading( affinitiesFile );
-		final IHDF5Reader superVoxelLoader = HDF5Factory.openForReading( superVoxelFile );
-
-		final HDF5DataSetInformation affinitiesDataset = affinitiesLoader.getDataSetInformation( affinitiesPath );
-		final HDF5DataSetInformation superVoxelDataset = superVoxelLoader.getDataSetInformation( superVoxelPath );
-
-		final long[] affinitiesDimensions = Util.reorder( affinitiesDataset.getDimensions() );
-		final long[] superVoxelDimensions = Util.reorder( superVoxelDataset.getDimensions() );
-
-		final int[] affinitiesChunkSize = affinitiesDataset.getStorageLayout().equals( HDF5StorageLayout.CHUNKED ) ? Util.reorder( affinitiesDataset.tryGetChunkSizes() ) : Arrays.stream( affinitiesDimensions ).mapToInt( l -> ( int ) l ).toArray();
-		final int[] superVoxelChunkSize = superVoxelDataset.getStorageLayout().equals( HDF5StorageLayout.CHUNKED ) ? Util.reorder( superVoxelDataset.tryGetChunkSizes() ) : Arrays.stream( superVoxelDimensions ).mapToInt( l -> ( int ) l ).toArray();
-
-		final CellGrid affinitiesGrid = new CellGrid( affinitiesDimensions, affinitiesChunkSize );
-		final CellGrid superVoxelGrid = new CellGrid( superVoxelDimensions, superVoxelChunkSize );
-
-		final HDF5FloatLoader affinitiesCellLoader = new HDF5FloatLoader( affinitiesLoader.float32(), affinitiesPath );
-		final HDF5LongLoader superVoxelCellLoader = new HDF5LongLoader( superVoxelLoader.uint64(), superVoxelPath );
-		final FloatAndLongLoader floader = new FloatAndLongLoader( superVoxelDimensions, superVoxelChunkSize, superVoxelCellLoader, affinitiesCellLoader );
-
-		final JavaPairRDD< HashWrapper< long[] >, Data > blockedGraph = DataPreparation.createGraphPointingBackwards( sc, floader, creator, merger );
-		blockedGraph.cache();
+	public static < LABEL extends IntegerType< LABEL > & NativeType< LABEL >, AFF extends RealType< AFF > & NativeType< AFF >, LABEL_A extends ArrayDataAccess< LABEL_A >, AFF_A extends ArrayDataAccess< AFF_A > > void run(
+			final JavaSparkContext sc,
+			final JavaPairRDD< HashWrapper< long[] >, Data > blockedGraph,
+			final Loader< LABEL, AFF, LABEL_A, AFF_A > loader,
+			final EdgeCreator creator,
+			final EdgeMerger merger,
+			final EdgeWeight edgeWeight,
+			final BlockedRegionMergingSpark.Options options,
+			final double[] thresholds,
+			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > >[] mergesLogger )
+	{
 		final MergesAccumulator accu = new MergesAccumulator();
 		sc.sc().register( accu, "mergesAccumulator" );
 
@@ -114,91 +145,13 @@ public class AgglomerateAndLog
 
 		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, mergeNotifyGenerator, 2 );
 
-		final BlockedRegionMergingSpark.Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
-
-		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
-
-//		final Consumer< JavaPairRDD< HashWrapper< long[] >, TLongArrayList > > mergesLogger = rdd -> {
-//			final TLongArrayList merges = new TLongArrayList();
-//			rdd.values().collect().forEach( merges::addAll );
-//			final int newIndex = mergesLog.size();
-//			mergesLog.put( newIndex, merges );
-//		};
-
 		System.out.println( "Start agglomerating!" );
-		rm.agglomerate( sc, blockedGraph, mergesLogger, options );
+		for ( int i = 0; i < thresholds.length; ++i )
+		{
+			final Options opts = options.copy().threshold( thresholds[ i ] );
+			rm.agglomerate( sc, blockedGraph, mergesLogger[ i ], opts );
+		}
 		System.out.println( "Done agglomerating!" );
-
-	}
-
-	public static class FloatAndLongLoader implements Loader< LongType, FloatType, LongArray, FloatArray >
-	{
-
-		private final long[] dimensions;
-
-		private final int[] blockSize;
-
-		private final CellLoader< LongType > labelLoader;
-
-		private final CellLoader< FloatType > affinitiesLoader;
-
-		public FloatAndLongLoader( final long[] dimensions, final int[] blockSize, final CellLoader< LongType > labelLoader, final CellLoader< FloatType > affinitiesLoader )
-		{
-			super();
-			this.dimensions = dimensions;
-			this.blockSize = blockSize;
-			this.labelLoader = labelLoader;
-			this.affinitiesLoader = affinitiesLoader;
-		}
-
-		@Override
-		public long[] dimensions()
-		{
-			return this.dimensions;
-		}
-
-		@Override
-		public int[] blockSize()
-		{
-			return this.blockSize;
-		}
-
-		@Override
-		public CellLoader< LongType > labelLoader()
-		{
-			return labelLoader;
-		}
-
-		@Override
-		public CellLoader< FloatType > affinitiesLoader()
-		{
-			return affinitiesLoader;
-		}
-
-		@Override
-		public LongType labelType()
-		{
-			return new LongType();
-		}
-
-		@Override
-		public FloatType affinityType()
-		{
-			return new FloatType();
-		}
-
-		@Override
-		public LongArray labelAccess()
-		{
-			return new LongArray( 0 );
-		}
-
-		@Override
-		public FloatArray affinityAccess()
-		{
-			return new FloatArray( 0 );
-		}
-
 	}
 
 	public static < T extends Type< T > > void burnIn( final RandomAccessible< T > source, final RandomAccessibleInterval< T > target )

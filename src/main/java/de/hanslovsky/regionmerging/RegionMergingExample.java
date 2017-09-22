@@ -118,8 +118,8 @@ public class RegionMergingExample
 		final CellGrid affinitiesGrid = new CellGrid( affinitiesDimensions, affinitiesChunkSize );
 		final CellGrid superVoxelGrid = new CellGrid( superVoxelDimensions, superVoxelChunkSize );
 
-		final HDF5FloatLoader affinitiesCellLoader = new HDF5FloatLoader( affinitiesLoader.float32(), affinitiesPath );
-		final HDF5LongLoader superVoxelCellLoader = new HDF5LongLoader( superVoxelLoader.uint64(), superVoxelPath );
+		final HDF5FloatLoader affinitiesCellLoader = new HDF5FloatLoader( affinitiesLoader, affinitiesPath );
+		final HDF5LongLoader superVoxelCellLoader = new HDF5LongLoader( superVoxelLoader, superVoxelPath );
 
 		final Cache< Long, Cell< FloatArray > > affinitiesCache = new SoftRefLoaderCache< Long, Cell< FloatArray > >().withLoader( LoadedCellCacheLoader.get( affinitiesGrid, affinitiesCellLoader, new FloatType() ) );
 		final Cache< Long, Cell< LongArray > > superVoxelCache = new SoftRefLoaderCache< Long, Cell< LongArray > >().withLoader( LoadedCellCacheLoader.get( superVoxelGrid, superVoxelCellLoader, new LongType() ) );
@@ -212,7 +212,7 @@ public class RegionMergingExample
 //		final EdgeWeight edgeWeight = new EdgeWeight.OneMinusAffinity();
 
 		final long[] dimensions = Intervals.dimensionsAsLongArray( labels );
-		final int[] blockSize = { ( int ) dimensions[ 0 ], ( int ) dimensions[ 1 ], 3 };
+		final int[] blockSize = { ( int ) dimensions[ 0 ], ( int ) dimensions[ 1 ], 5 };
 
 		final CellLoader< LongType > ll = cell -> {
 			burnIn( labels, cell );
@@ -230,7 +230,7 @@ public class RegionMergingExample
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
 
-		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, new FloatAndLongLoader( dimensions, blockSize, ll, al ), creator, merger );
+		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, new FloatAndLongLoader( dimensions, blockSize, ll, al ), creator, merger, blockSize );
 		graph.cache();
 		final long nBlocks = graph.count();
 		System.out.println( "Starting with " + nBlocks + " blocks." );
@@ -336,15 +336,21 @@ public class RegionMergingExample
 		}
 
 		@Override
-		public long[] dimensions()
+		public CellGrid labelGrid()
 		{
-			return this.dimensions;
+			return new CellGrid( dimensions, blockSize );
 		}
 
 		@Override
-		public int[] blockSize()
+		public CellGrid affinitiesGrid()
 		{
-			return this.blockSize;
+			final long[] d = new long[ dimensions.length + 1 ];
+			final int[] b = new int[ dimensions.length + 1 ];
+			System.arraycopy( dimensions, 0, d, 0, dimensions.length );
+			System.arraycopy( blockSize, 0, b, 0, dimensions.length );
+			d[ dimensions.length ] = dimensions.length;
+			b[ dimensions.length ] = dimensions.length;
+			return new CellGrid( d, b );
 		}
 
 		@Override
