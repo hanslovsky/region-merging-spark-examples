@@ -61,10 +61,17 @@
 			<version>4.2.1-SNAPSHOT</version>
 		</dependency>
 
+		<!-- https://www.slf4j.org/codes.html#multiple_bindings -->
 		<dependency>
 			<groupId>sc.fiji</groupId>
 			<artifactId>bigcat</artifactId>
 			<version>0.0.3-SNAPSHOT</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.slf4j</groupId>
+					<artifactId>slf4j-simple</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 
 		<dependency>
