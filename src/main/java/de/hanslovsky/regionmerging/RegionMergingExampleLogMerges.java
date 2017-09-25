@@ -62,28 +62,24 @@ public class RegionMergingExampleLogMerges
 
 	public static void main( final String[] args ) throws IOException
 	{
-//		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
-//		final String affinitiesPath = "main";
-//		final String superVoxelFile = affinitiesFile;
-//		final String superVoxelPath = "zws";
-//		final int[] affinitiesChunkSize = { 300, 300, 100, 3 };
-//		final int[] superVoxelChunkSize = { 300, 300, 100 };
+		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
+		final String affinitiesPath = "affs-0-6-120x60+150+0";
+		final String superVoxelFile = affinitiesFile;
+		final String superVoxelPath = "zws-0-6-120x60+150+0";
 
 //		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/raw-and-affinities.h5";
 //		final String affinitiesPath = "volumes/predicted_affs";
 //		final String superVoxelFile = HOME_DIR + "/local/tmp/data-jan/labels.h5";
 //		final String superVoxelPath = "volumes/labels/neuron_ids";
-//		final int[] affinitiesChunkSize = { 1461, 1578, 63, 3 };
-//		final int[] superVoxelChunkSize = { 84, 90, 2 };
 
-		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
-		final String affinitiesPath = "aff";
-		final String superVoxelFile = affinitiesFile;
-		final String superVoxelPath = "seg";
+//		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
+//		final String affinitiesPath = "aff";
+//		final String superVoxelFile = affinitiesFile;
+//		final String superVoxelPath = "seg";
 
 		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > loader = AffinitiesAndLabelsFromH5.get( affinitiesFile, affinitiesPath, superVoxelFile, superVoxelPath, true );
 
-		final int stepSizeZ = 63;
+		final int stepSizeZ = 6;
 
 		final int[] blockSize = Arrays.stream( loader.labelGrid().getImgDimensions() ).mapToInt( l -> ( int ) l ).toArray();
 		blockSize[ 2 ] = stepSizeZ;
@@ -114,7 +110,7 @@ public class RegionMergingExampleLogMerges
 
 		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
 
-		final String outputFileName = "log-" + stepSizeZ;
+		final String outputFileName = "log-small-" + stepSizeZ;
 		Files.deleteIfExists( new File( outputFileName ).toPath() );
 		Files.createFile( Paths.get( outputFileName ) );
 

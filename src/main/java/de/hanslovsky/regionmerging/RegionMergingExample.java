@@ -10,6 +10,8 @@ import java.util.function.BiConsumer;
 import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -25,6 +27,7 @@ import com.sun.javafx.application.PlatformImpl;
 
 import bdv.bigcat.viewer.atlas.Atlas;
 import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
+import bdv.img.h5.H5Utils;
 import bdv.img.hdf5.Util;
 import bdv.util.Prefs;
 import ch.systemsx.cisd.hdf5.HDF5DataSetInformation;
@@ -84,24 +87,20 @@ public class RegionMergingExample
 
 	public static void main( final String[] args )
 	{
-//		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
-//		final String affinitiesPath = "main";
-//		final String superVoxelFile = affinitiesFile;
-//		final String superVoxelPath = "zws";
-//		final int[] affinitiesChunkSize = { 300, 300, 100, 3 };
-//		final int[] superVoxelChunkSize = { 300, 300, 100 };
+		final String affinitiesFile = HOME_DIR + "/Downloads/excerpt.h5";
+		final String affinitiesPath = "main";// "affs-0-6-120x60+150+0";
+		final String superVoxelFile = affinitiesFile;
+		final String superVoxelPath = "zws";// "zws-0-6-120x60+150+0";
 
 //		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/raw-and-affinities.h5";
 //		final String affinitiesPath = "volumes/predicted_affs";
 //		final String superVoxelFile = HOME_DIR + "/local/tmp/data-jan/labels.h5";
 //		final String superVoxelPath = "volumes/labels/neuron_ids";
-//		final int[] affinitiesChunkSize = { 1461, 1578, 63, 3 };
-//		final int[] superVoxelChunkSize = { 84, 90, 2 };
 
-		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
-		final String affinitiesPath = "aff";
-		final String superVoxelFile = affinitiesFile;
-		final String superVoxelPath = "seg";
+//		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/cutout.h5";
+//		final String affinitiesPath = "aff";
+//		final String superVoxelFile = affinitiesFile;
+//		final String superVoxelPath = "seg";
 
 		final IHDF5Reader affinitiesLoader = HDF5Factory.openForReading( affinitiesFile );
 		final IHDF5Reader superVoxelLoader = HDF5Factory.openForReading( superVoxelFile );
@@ -141,6 +140,8 @@ public class RegionMergingExample
 				aff.get( d ).set( Float.NaN );
 
 		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
+
+		final int stepZ = 3;
 
 
 		final Random rng = new Random( 100 );
@@ -212,7 +213,7 @@ public class RegionMergingExample
 //		final EdgeWeight edgeWeight = new EdgeWeight.OneMinusAffinity();
 
 		final long[] dimensions = Intervals.dimensionsAsLongArray( labels );
-		final int[] blockSize = { ( int ) dimensions[ 0 ], ( int ) dimensions[ 1 ], 5 };
+		final int[] blockSize = { ( int ) dimensions[ 0 ], ( int ) dimensions[ 1 ], stepZ };
 
 		final CellLoader< LongType > ll = cell -> {
 			burnIn( labels, cell );
@@ -222,6 +223,9 @@ public class RegionMergingExample
 			burnIn( affs, cell );
 		};
 
+		Logger.getLogger( "org" ).setLevel( Level.OFF );
+		Logger.getLogger( "akka" ).setLevel( Level.OFF );
+
 		final SparkConf conf = new SparkConf()
 				.setMaster( "local[*]" )
 				.setAppName( DataPreparation.class.toString() )
@@ -229,6 +233,8 @@ public class RegionMergingExample
 				.set( "spark.kryo.registrator", Registrator.class.getName() );
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
+
+		sc.setLogLevel( "ERROR" );
 
 		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, new FloatAndLongLoader( dimensions, blockSize, ll, al ), creator, merger, blockSize );
 		graph.cache();
@@ -303,6 +309,7 @@ public class RegionMergingExample
 			final RandomAccessibleInterval< LongType > firstJoined = Converters.convert( labels, ( s, t ) -> {
 				t.set( uf.findRoot( s.get() ) );
 			}, new LongType() );
+			H5Utils.saveLong( firstJoined, "merged-" + stepZ + "-" + i + ".h5", "labels", Intervals.dimensionsAsIntArray( firstJoined ) );
 			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( firstJoined, colorConv, new ARGBType() );
 			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { colored }, resolution, null, "iteratrion " + i ) );
 		}
