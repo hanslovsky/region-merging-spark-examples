@@ -15,8 +15,8 @@ public class CompareMergeTrees
 
 	public static void main( final String[] args ) throws IOException
 	{
-		final String fn1 = "log-small-3-sorted";
-		final String fn2 = "log-small-6-sorted";
+		final String fn1 = "log-small-3";
+		final String fn2 = "log-small-6";
 
 		final List< Tuple2< Long, Long > > merges1 = merges( fn1 );
 		final List< Tuple2< Long, Long > > merges2 = merges( fn2 );
@@ -51,6 +51,8 @@ public class CompareMergeTrees
 				System.out.println( "VALUES DISAGREE IN MIN1!     " + key + " " + value + " " + min1.get( key ) );
 			return true;
 		} );
+
+		System.out.println( min1.get( 290 ) );
 
 	}
 

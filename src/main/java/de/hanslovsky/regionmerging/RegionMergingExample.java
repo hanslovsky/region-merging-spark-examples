@@ -141,7 +141,7 @@ public class RegionMergingExample
 
 		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
 
-		final int stepZ = 3;
+		final int stepZ = 63;
 
 
 		final Random rng = new Random( 100 );
@@ -171,6 +171,7 @@ public class RegionMergingExample
 		};
 
 		PlatformImpl.startup( () -> {} );
+		Platform.setImplicitExit( true );
 		final Atlas atlas = new Atlas( labels );
 		Platform.runLater( () -> {
 			final Stage stage = new Stage();
@@ -222,6 +223,9 @@ public class RegionMergingExample
 		final CellLoader< FloatType > al = cell -> {
 			burnIn( affs, cell );
 		};
+		Logger.getLogger( "org" ).setLevel( Level.WARN );
+		Logger.getLogger( "akka" ).setLevel( Level.WARN );
+		Logger.getLogger( "spark" ).setLevel( Level.WARN );
 
 		Logger.getLogger( "org" ).setLevel( Level.OFF );
 		Logger.getLogger( "akka" ).setLevel( Level.OFF );
@@ -233,6 +237,7 @@ public class RegionMergingExample
 				.set( "spark.kryo.registrator", Registrator.class.getName() );
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
+		sc.setLogLevel( "OFF" );
 
 		sc.setLogLevel( "ERROR" );
 
