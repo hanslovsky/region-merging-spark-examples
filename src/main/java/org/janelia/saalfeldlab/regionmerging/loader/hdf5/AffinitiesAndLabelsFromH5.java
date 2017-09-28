@@ -1,4 +1,4 @@
-package de.hanslovsky.regionmerging.loader.hdf5;
+package org.janelia.saalfeldlab.regionmerging.loader.hdf5;
 
 import java.util.Arrays;
 

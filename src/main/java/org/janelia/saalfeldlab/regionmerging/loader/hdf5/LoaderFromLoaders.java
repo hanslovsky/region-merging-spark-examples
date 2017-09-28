@@ -1,6 +1,7 @@
-package de.hanslovsky.regionmerging.loader.hdf5;
+package org.janelia.saalfeldlab.regionmerging.loader.hdf5;
 
-import de.hanslovsky.regionmerging.DataPreparation.Loader;
+import org.janelia.saalfeldlab.regionmerging.DataPreparation.Loader;
+
 import net.imglib2.cache.img.CellLoader;
 import net.imglib2.img.cell.CellGrid;
 import net.imglib2.type.NativeType;

@@ -1,4 +1,4 @@
-package de.hanslovsky.regionmerging;
+package org.janelia.saalfeldlab.regionmerging;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -6,7 +6,8 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
+import org.janelia.saalfeldlab.util.unionfind.HashMapStoreUnionFind;
+
 import gnu.trove.map.hash.TLongLongHashMap;
 import scala.Tuple2;
 

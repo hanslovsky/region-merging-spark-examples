@@ -1,4 +1,4 @@
-package de.hanslovsky.regionmerging;
+package org.janelia.saalfeldlab.regionmerging;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -16,21 +16,25 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.serializer.KryoRegistrator;
 import org.apache.spark.util.AccumulatorV2;
+import org.janelia.saalfeldlab.graph.edge.EdgeCreator;
+import org.janelia.saalfeldlab.graph.edge.EdgeMerger;
+import org.janelia.saalfeldlab.graph.edge.EdgeWeight;
+import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark;
+import org.janelia.saalfeldlab.regionmerging.DataPreparation;
+import org.janelia.saalfeldlab.regionmerging.HashWrapper;
+import org.janelia.saalfeldlab.regionmerging.MergeNotifyWithFinishNotification;
+import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Data;
+import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Options;
+import org.janelia.saalfeldlab.regionmerging.DataPreparation.Loader;
+import org.janelia.saalfeldlab.regionmerging.loader.hdf5.AffinitiesAndLabelsFromH5;
+import org.janelia.saalfeldlab.regionmerging.loader.hdf5.LoaderFromLoaders;
+import org.janelia.saalfeldlab.util.unionfind.HashMapStoreUnionFind;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
-import de.hanslovsky.graph.edge.EdgeCreator;
-import de.hanslovsky.graph.edge.EdgeMerger;
-import de.hanslovsky.graph.edge.EdgeWeight;
-import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Data;
-import de.hanslovsky.regionmerging.BlockedRegionMergingSpark.Options;
-import de.hanslovsky.regionmerging.DataPreparation.Loader;
-import de.hanslovsky.regionmerging.loader.hdf5.AffinitiesAndLabelsFromH5;
-import de.hanslovsky.regionmerging.loader.hdf5.LoaderFromLoaders;
-import de.hanslovsky.util.unionfind.HashMapStoreUnionFind;
 import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
