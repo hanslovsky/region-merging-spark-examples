@@ -15,8 +15,8 @@ public class CompareMergeTrees
 
 	public static void main( final String[] args ) throws IOException
 	{
-		final String fn1 = "log-small-3";
-		final String fn2 = "log-small-6";
+		final String fn1 = "log-complete-3";
+		final String fn2 = "log-complete-100";
 
 		final List< Tuple2< Long, Long > > merges1 = merges( fn1 );
 		final List< Tuple2< Long, Long > > merges2 = merges( fn2 );

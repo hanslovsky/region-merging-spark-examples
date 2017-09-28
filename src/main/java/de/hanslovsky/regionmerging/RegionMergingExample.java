@@ -141,7 +141,7 @@ public class RegionMergingExample
 
 		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
 
-		final int stepZ = 63;
+		final int stepZ = 5;
 
 
 		final Random rng = new Random( 100 );

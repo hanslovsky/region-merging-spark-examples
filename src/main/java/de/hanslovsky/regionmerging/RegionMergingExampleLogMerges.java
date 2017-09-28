@@ -45,20 +45,14 @@ import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
-import net.imglib2.FinalInterval;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
-import net.imglib2.cache.img.LoadedCellCacheLoader;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
-import net.imglib2.img.cell.CellGrid;
-import net.imglib2.img.cell.LazyCellImg;
 import net.imglib2.type.Type;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
-import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
-import net.imglib2.view.IntervalView;
 import net.imglib2.view.Views;
 import scala.Tuple2;
 
@@ -84,55 +78,58 @@ public class RegionMergingExampleLogMerges
 //		final String superVoxelFile = affinitiesFile;
 //		final String superVoxelPath = "seg";
 
-		final long startX = 0;
-		final long startY = 150;
-		final long startZ = 0;
-		final long stopX = startX + 60;
-		final long stopY = startY + 60;
-		final long stopZ = startZ + 6;
+//		final long startX = 0;
+//		final long startY = 150;
+//		final long startZ = 0;
+//		final long stopX = 300; // startX + 60;
+//		final long stopY = 300; // startY + 60;
+//		final long stopZ = 100; // startZ + 6;
 
-		final long[] affinitiesMin = new long[] { startX, startY, startZ, 0 };
-		final long[] affinitiesMax = new long[] { stopX - 1, stopY - 1, stopZ - 1, 2 };
-		final long[] superVoxelMin = Arrays.stream( affinitiesMin ).limit( 3 ).toArray();
-		final long[] superVoxelMax = Arrays.stream( affinitiesMax ).limit( 3 ).toArray();
+//		final long[] affinitiesMin = new long[] { startX, startY, startZ, 0 };
+//		final long[] affinitiesMax = new long[] { stopX - 1, stopY - 1, stopZ - 1, 2 };
+//		final long[] superVoxelMin = Arrays.stream( affinitiesMin ).limit( 3 ).toArray();
+//		final long[] superVoxelMax = Arrays.stream( affinitiesMax ).limit( 3 ).toArray();
 
-		final int stepSizeZ = 6;
+		final int stepSizeZ = 100;
 
 		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > loader = AffinitiesAndLabelsFromH5.get( affinitiesFile, affinitiesPath, superVoxelFile, superVoxelPath, true );
 
-		final LoadedCellCacheLoader< FloatType, FloatArray > al = LoadedCellCacheLoader.get( loader.affinitiesGrid(), loader.affinitiesLoader(), new FloatType() );
-		final LoadedCellCacheLoader< LongType, LongArray > ll = LoadedCellCacheLoader.get( loader.labelGrid(), loader.labelLoader(), new LongType() );
-		final LazyCellImg< FloatType, ? > affinities = new LazyCellImg<>( loader.affinitiesGrid(), new FloatType(), index -> {
-			try
-			{
-				return al.get( index );
-			}
-			catch ( final Exception e )
-			{
-				throw new RuntimeException( e );
-			}
-		} );
-		final LazyCellImg< LongType, ? > superVoxel = new LazyCellImg<>( loader.labelGrid(), new LongType(), index -> {
-			try
-			{
-				return ll.get( index );
-			}
-			catch ( final Exception e )
-			{
-				throw new RuntimeException( e );
-			}
-		} );
+//		final LoadedCellCacheLoader< FloatType, FloatArray > al = LoadedCellCacheLoader.get( loader.affinitiesGrid(), loader.affinitiesLoader(), new FloatType() );
+//		final LoadedCellCacheLoader< LongType, LongArray > ll = LoadedCellCacheLoader.get( loader.labelGrid(), loader.labelLoader(), new LongType() );
+//		final LazyCellImg< FloatType, ? > affinities = new LazyCellImg<>( loader.affinitiesGrid(), new FloatType(), index -> {
+//			try
+//			{
+//				return al.get( index );
+//			}
+//			catch ( final Exception e )
+//			{
+//				throw new RuntimeException( e );
+//			}
+//		} );
+//		final LazyCellImg< LongType, ? > superVoxel = new LazyCellImg<>( loader.labelGrid(), new LongType(), index -> {
+//			try
+//			{
+//				return ll.get( index );
+//			}
+//			catch ( final Exception e )
+//			{
+//				throw new RuntimeException( e );
+//			}
+//		} );
 
-		final IntervalView< FloatType > affinitiesCrop = Views.offsetInterval( affinities, new FinalInterval( affinitiesMin, affinitiesMax ) );
-		final IntervalView< LongType > superVoxelCrop = Views.offsetInterval( superVoxel, new FinalInterval( superVoxelMin, superVoxelMax ) );
-		final CellGrid sg = new CellGrid( Intervals.dimensionsAsLongArray( superVoxelCrop ), Intervals.dimensionsAsIntArray( superVoxelCrop ) );
-		final CellGrid ag = new CellGrid( Intervals.dimensionsAsLongArray( affinitiesCrop ), Intervals.dimensionsAsIntArray( affinitiesCrop ) );
+//		final IntervalView< FloatType > affinitiesCrop = Views.offsetInterval( affinities, new FinalInterval( affinitiesMin, affinitiesMax ) );
+//		final IntervalView< LongType > superVoxelCrop = Views.offsetInterval( superVoxel, new FinalInterval( superVoxelMin, superVoxelMax ) );
+//		final CellGrid sg = new CellGrid( Intervals.dimensionsAsLongArray( superVoxelCrop ), Intervals.dimensionsAsIntArray( superVoxelCrop ) );
+//		final CellGrid ag = new CellGrid( Intervals.dimensionsAsLongArray( affinitiesCrop ), Intervals.dimensionsAsIntArray( affinitiesCrop ) );
 
 
-		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > actualLoader = new LoaderFromLoaders<>(
-				sg, ag, cell -> burnIn( superVoxelCrop, cell ), cell -> burnIn( affinitiesCrop, cell ), new LongType(), new FloatType(), new LongArray( 1 ), new FloatArray( 1 ) );
+//		final LoaderFromLoaders< LongType, FloatType, LongArray, FloatArray > actualLoader = new LoaderFromLoaders<>(
+//				sg, ag, cell -> burnIn( superVoxelCrop, cell ), cell -> burnIn( affinitiesCrop, cell ), new LongType(), new FloatType(), new LongArray( 1 ), new FloatArray( 1 ) );
 
-		final int[] blockSize = Arrays.stream( actualLoader.labelGrid().getImgDimensions() ).mapToInt( l -> ( int ) l ).toArray();
+//		final int[] blockSize = Arrays.stream( actualLoader.labelGrid().getImgDimensions() ).mapToInt( l -> ( int ) l ).toArray();
+//		blockSize[ 2 ] = stepSizeZ;
+
+		final int[] blockSize = Arrays.stream( loader.labelGrid().getImgDimensions() ).mapToInt( l -> ( int ) l ).toArray();
 		blockSize[ 2 ] = stepSizeZ;
 
 		final int nBins = 256;
@@ -148,11 +145,12 @@ public class RegionMergingExampleLogMerges
 				.setMaster( "local[*]" )
 				.setAppName( DataPreparation.class.toString() )
 				.set( "spark.serializer", "org.apache.spark.serializer.KryoSerializer" )
-				.set( "spark.kryo.registrator", Registrator.class.getName() );
+				.set( "spark.kryo.registrator", Registrator.class.getName() )
+				.set( "spark.kryoserializer.buffer.max", "1g" );
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
 
-		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, actualLoader, creator, merger, blockSize );
+		final JavaPairRDD< HashWrapper< long[] >, Data > graph = DataPreparation.createGraphPointingBackwards( sc, loader, creator, merger, blockSize );
 		graph.cache();
 		final HashMap< Tuple2< Long, Long >, Double > edges = new HashMap< Tuple2< Long, Long >, Double >();
 		graph.values().collect().forEach( data -> {
@@ -170,7 +168,7 @@ public class RegionMergingExampleLogMerges
 		for ( final Entry< Tuple2< Long, Long >, Double > edge : edges.entrySet() )
 			sb.append( "\n" ).append( edge.getKey()._1() ).append( "," ).append( edge.getKey()._2() ).append( "," ).append( edge.getValue() );
 
-		final String edgesLogFileName = "log-edges-small-" + stepSizeZ;
+		final String edgesLogFileName = "log-edges-complete-" + stepSizeZ;
 		Files.deleteIfExists( new File( edgesLogFileName ).toPath() );
 		Files.createFile( Paths.get( edgesLogFileName ) );
 		Files.write( Paths.get( edgesLogFileName ), sb.toString().getBytes(), StandardOpenOption.APPEND );
@@ -181,7 +179,7 @@ public class RegionMergingExampleLogMerges
 
 		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
 
-		final String outputFileName = "log-small-" + stepSizeZ;
+		final String outputFileName = "log-complete-" + stepSizeZ;
 		Files.deleteIfExists( new File( outputFileName ).toPath() );
 		Files.createFile( Paths.get( outputFileName ) );
 
