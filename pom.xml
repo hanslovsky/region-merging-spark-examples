@@ -19,6 +19,7 @@
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<spark.scope>provided</spark.scope>
 	</properties>
 
 	<repositories>
@@ -70,10 +71,8 @@
 			<groupId>org.apache.spark</groupId>
 			<artifactId>spark-core_2.11</artifactId>
 			<version>2.2.0</version>
-			<scope>provided</scope>
+			<scope>${spark.scope}</scope>
 		</dependency>
-
-
 
 		<!-- test dependencies -->
 		<dependency>
@@ -107,4 +106,41 @@
 
 		</plugins>
 	</build>
+
+	<profiles>
+		<profile>
+			<id>fat</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-shade-plugin</artifactId>
+						<configuration>
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+									</excludes>
+								</filter>
+							</filters>
+							<shadedArtifactId>${project.artifactId}-shaded</shadedArtifactId>
+							<shadedArtifactAttached>true</shadedArtifactAttached>
+							<minimzeJar>true</minimzeJar>
+						</configuration>
+						<executions>
+							<execution>
+								<phase>package</phase>
+								<goals>
+									<goal>shade</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>
