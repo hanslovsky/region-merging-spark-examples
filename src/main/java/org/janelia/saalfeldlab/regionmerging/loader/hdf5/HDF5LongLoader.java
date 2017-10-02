@@ -7,7 +7,7 @@ import ch.systemsx.cisd.base.mdarray.MDLongArray;
 import ch.systemsx.cisd.hdf5.IHDF5LongReader;
 import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import net.imglib2.cache.img.CellLoader;
-import net.imglib2.img.Img;
+import net.imglib2.cache.img.SingleCellArrayImg;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.util.Intervals;
 import net.imglib2.view.Views;
@@ -26,7 +26,7 @@ public class HDF5LongLoader implements CellLoader< LongType >
 	}
 
 	@Override
-	public void load( final Img< LongType > cell ) throws Exception
+	public void load( final SingleCellArrayImg< LongType, ? > cell ) throws Exception
 	{
 		final MDLongArray targetCell = reader.readMDArrayBlockWithOffset(
 				dataset,

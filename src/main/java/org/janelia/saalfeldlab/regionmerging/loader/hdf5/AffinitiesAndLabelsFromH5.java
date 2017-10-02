@@ -1,6 +1,7 @@
 package org.janelia.saalfeldlab.regionmerging.loader.hdf5;
 
 import java.util.Arrays;
+import java.util.Optional;
 
 import bdv.img.hdf5.Util;
 import ch.systemsx.cisd.hdf5.HDF5DataSetInformation;
@@ -11,8 +12,11 @@ import net.imglib2.cache.img.CellLoader;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.img.cell.CellGrid;
+import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.util.Pair;
+import net.imglib2.util.ValuePair;
 
 public class AffinitiesAndLabelsFromH5
 {
@@ -44,6 +48,25 @@ public class AffinitiesAndLabelsFromH5
 
 		return new LoaderFromLoaders<>( superVoxelGrid, affinitiesGrid, superVoxelCellLoader, affinitiesCellLoader, new LongType(), new FloatType(), new LongArray( 1 ), new FloatArray( 1 ) );
 
+	}
+
+	public static < T extends NativeType< T > > Optional< Pair< CellLoader< T >, CellGrid > > get(
+			final String file,
+			final String path,
+			final boolean reverseLastDimension,
+			final T t )
+	{
+		final IHDF5Reader reader = HDF5Factory.openForReading( file );
+		final HDF5DataSetInformation ds = reader.getDataSetInformation( path );
+		final long[] dims = Util.reorder( ds.getDimensions() );
+		final int[] chunkSize = ds.getStorageLayout().equals( HDF5StorageLayout.CHUNKED ) ? Util.reorder( ds.tryGetChunkSizes() ) : Arrays.stream( dims ).mapToInt( l -> ( int ) l ).toArray();
+		System.out.println( "OPENING DS AT " + path + " " + Arrays.toString( dims ) + " " + Arrays.toString( chunkSize ) );
+		final CellGrid grid = new CellGrid( dims, chunkSize );
+		if ( t instanceof FloatType )
+			return Optional.of( new ValuePair<>( ( CellLoader< T > ) ( reverseLastDimension ? new HDF5FloatLoaderFlipLastDimension( reader, path ) : new HDF5FloatLoader( reader, path ) ), grid ) );
+		else if ( t instanceof LongType )
+			return Optional.of( new ValuePair<>( ( CellLoader< T > ) new HDF5LongLoader( reader, path ), grid ) );
+		return Optional.empty();
 	}
 
 }

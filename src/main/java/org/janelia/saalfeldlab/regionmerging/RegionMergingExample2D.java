@@ -1,13 +1,11 @@
 package org.janelia.saalfeldlab.regionmerging;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.function.BiConsumer;
-import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
 import org.apache.spark.SparkConf;
@@ -16,19 +14,14 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.Optional;
 import org.apache.spark.serializer.KryoRegistrator;
 import org.apache.spark.storage.StorageLevel;
-import org.apache.spark.util.AccumulatorV2;
 import org.janelia.saalfeldlab.graph.edge.EdgeCreator;
 import org.janelia.saalfeldlab.graph.edge.EdgeCreator.AffinityHistogram;
 import org.janelia.saalfeldlab.graph.edge.EdgeMerger;
 import org.janelia.saalfeldlab.graph.edge.EdgeMerger.MEDIAN_AFFINITY_MERGER;
 import org.janelia.saalfeldlab.graph.edge.EdgeWeight;
 import org.janelia.saalfeldlab.graph.edge.EdgeWeight.MedianAffinityWeight;
-import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Data;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Options;
-import org.janelia.saalfeldlab.regionmerging.DataPreparation;
-import org.janelia.saalfeldlab.regionmerging.HashWrapper;
-import org.janelia.saalfeldlab.regionmerging.MergeNotifyWithFinishNotification;
 import org.janelia.saalfeldlab.util.unionfind.HashMapStoreUnionFind;
 
 import com.esotericsoftware.kryo.Kryo;
@@ -41,7 +34,6 @@ import bdv.bigcat.viewer.atlas.Atlas;
 import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
 import bdv.img.h5.H5Utils;
 import bdv.util.Prefs;
-import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TIntObjectHashMap;
@@ -199,13 +191,7 @@ public class RegionMergingExample2D
 		final long nBlocks = graph.count();
 		System.out.println( "Starting with " + nBlocks + " blocks." );
 
-		final MergesAccumulator accu = new MergesAccumulator();
-		sc.sc().register( accu, "mergesAccumulator" );
-
-		final IntFunction< MergeNotifyWithFinishNotification > mergeNotifyGenerator = new MergeNotifyGenerator( accu );
-
-
-		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, mergeNotifyGenerator, 2 );
+		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, 2 );
 
 		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
 
@@ -222,7 +208,7 @@ public class RegionMergingExample2D
 		rm.agglomerate( sc, graph, mergesLogger, options );
 		System.out.println( "Done agglomerating!" );
 
-		final TIntObjectHashMap< TLongArrayList > merges = accu.value();
+		final TIntObjectHashMap< TLongArrayList > merges = mergesLog;
 
 		final HashMapStoreUnionFind[] ufs = Stream.generate( HashMapStoreUnionFind::new ).limit( merges.size() ).toArray( HashMapStoreUnionFind[]::new );
 
@@ -370,127 +356,6 @@ public class RegionMergingExample2D
 		}
 	}
 
-	public static class MergeNotifyGenerator implements IntFunction< MergeNotifyWithFinishNotification >, Serializable
-	{
 
-		private final MergesAccumulator merges;
-
-		public MergeNotifyGenerator( final MergesAccumulator merges )
-		{
-			super();
-			this.merges = merges;
-		}
-
-		@Override
-		public MergeNotifyWithFinishNotification apply( final int value )
-		{
-			final TLongArrayList mergesInBlock = new TLongArrayList();
-			return new MergeNotifyWithFinishNotification()
-			{
-
-				@Override
-				public void addMerge( final long node1, final long node2, final long newNode, final double weight )
-				{
-					mergesInBlock.add( node1 );
-					mergesInBlock.add( node2 );
-					mergesInBlock.add( newNode );
-					mergesInBlock.add( Double.doubleToRawLongBits( weight ) );
-//					System.out.println( "Added merge " + node1 + " " + node2 + " " + newNode + " " + weight );
-				}
-
-				@Override
-				public void notifyDone()
-				{
-					synchronized ( merges )
-					{
-						final TIntObjectHashMap< TLongArrayList > m = new TIntObjectHashMap<>();
-						m.put( value, mergesInBlock );
-						merges.add( m );
-					}
-					System.out.println( "Added " + mergesInBlock.size() / 4 + " merges at iteration " + value );
-				}
-			};
-		}
-
-	}
-
-	public static class MergesAccumulator extends AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > >
-	{
-
-		private final TIntObjectHashMap< TLongArrayList > data;
-
-		public MergesAccumulator()
-		{
-			this( new TIntObjectHashMap<>() );
-		}
-
-		public MergesAccumulator( final TIntObjectHashMap< TLongArrayList > data )
-		{
-			super();
-			this.data = data;
-		}
-
-		@Override
-		public void add( final TIntObjectHashMap< TLongArrayList > data )
-		{
-			synchronized ( this.data )
-			{
-				for ( final TIntObjectIterator< TLongArrayList > it = data.iterator(); it.hasNext(); )
-				{
-					it.advance();
-					if ( !this.data.contains( it.key() ) )
-						this.data.put( it.key(), new TLongArrayList() );
-					this.data.get( it.key() ).addAll( it.value() );
-				}
-			}
-		}
-
-		@Override
-		public AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > > copy()
-		{
-			synchronized ( data )
-			{
-				final TIntObjectHashMap< TLongArrayList > copy = new TIntObjectHashMap<>( data );
-				return new MergesAccumulator( copy );
-			}
-		}
-
-		@Override
-		public boolean isZero()
-		{
-			synchronized ( data )
-			{
-				return data.size() == 0;
-			}
-		}
-
-		@Override
-		public void merge( final AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > > other )
-		{
-			synchronized ( data )
-			{
-				add( other.value() );
-			}
-		}
-
-		@Override
-		public void reset()
-		{
-			synchronized ( data )
-			{
-				this.data.clear();
-			}
-		}
-
-		@Override
-		public TIntObjectHashMap< TLongArrayList > value()
-		{
-			synchronized ( data )
-			{
-				return data;
-			}
-		}
-
-	}
 
 }

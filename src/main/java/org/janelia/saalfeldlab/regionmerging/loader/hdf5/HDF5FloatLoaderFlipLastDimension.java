@@ -8,7 +8,7 @@ import ch.systemsx.cisd.hdf5.IHDF5FloatReader;
 import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import net.imglib2.Cursor;
 import net.imglib2.cache.img.CellLoader;
-import net.imglib2.img.Img;
+import net.imglib2.cache.img.SingleCellArrayImg;
 import net.imglib2.img.array.ArrayImg;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
@@ -31,8 +31,9 @@ public class HDF5FloatLoaderFlipLastDimension implements CellLoader< FloatType >
 	}
 
 	@Override
-	public void load( final Img< FloatType > cell ) throws Exception
+	public void load( final SingleCellArrayImg< FloatType, ? > cell ) throws Exception
 	{
+		System.out.println( "LOADING CELL AT " + Arrays.toString( Intervals.minAsLongArray( cell ) ) + " " + Arrays.toString( Intervals.maxAsLongArray( cell ) ) + " " + reader.toString() + " " + dataset );
 		final MDFloatArray targetCell = reader.readMDArrayBlockWithOffset(
 				dataset,
 				Arrays.stream( Util.reorder( Intervals.dimensionsAsLongArray( cell ) ) ).mapToInt( val -> ( int ) val ).toArray(),

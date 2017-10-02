@@ -1,13 +1,15 @@
 package org.janelia.saalfeldlab.regionmerging;
 
-import java.io.Serializable;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.function.BiConsumer;
-import java.util.function.IntFunction;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.log4j.Level;
@@ -18,16 +20,13 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.serializer.KryoRegistrator;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.AccumulatorV2;
+import org.janelia.saalfeldlab.graph.edge.Edge;
 import org.janelia.saalfeldlab.graph.edge.EdgeCreator;
-import org.janelia.saalfeldlab.graph.edge.EdgeMerger;
-import org.janelia.saalfeldlab.graph.edge.EdgeWeight;
 import org.janelia.saalfeldlab.graph.edge.EdgeCreator.AffinityHistogram;
+import org.janelia.saalfeldlab.graph.edge.EdgeMerger;
 import org.janelia.saalfeldlab.graph.edge.EdgeMerger.MEDIAN_AFFINITY_MERGER;
+import org.janelia.saalfeldlab.graph.edge.EdgeWeight;
 import org.janelia.saalfeldlab.graph.edge.EdgeWeight.MedianAffinityWeight;
-import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark;
-import org.janelia.saalfeldlab.regionmerging.DataPreparation;
-import org.janelia.saalfeldlab.regionmerging.HashWrapper;
-import org.janelia.saalfeldlab.regionmerging.MergeNotifyWithFinishNotification;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Data;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Options;
 import org.janelia.saalfeldlab.regionmerging.DataPreparation.Loader;
@@ -95,6 +94,7 @@ public class RegionMergingExample
 		final String affinitiesPath = "main";// "affs-0-6-120x60+150+0";
 		final String superVoxelFile = affinitiesFile;
 		final String superVoxelPath = "zws";// "zws-0-6-120x60+150+0";
+		final String mergesBaseDir = HOME_DIR + "/Downloads/merge_tree";
 
 //		final String affinitiesFile = HOME_DIR + "/local/tmp/data-jan/raw-and-affinities.h5";
 //		final String affinitiesPath = "volumes/predicted_affs";
@@ -145,7 +145,7 @@ public class RegionMergingExample
 
 		System.out.println( "Loaded labels from " + superVoxelFile + "/" + superVoxelPath );
 
-		final int stepZ = 5;
+		final int stepZ = 3;
 
 
 		final Random rng = new Random( 100 );
@@ -238,7 +238,8 @@ public class RegionMergingExample
 				.setMaster( "local[*]" )
 				.setAppName( DataPreparation.class.toString() )
 				.set( "spark.serializer", "org.apache.spark.serializer.KryoSerializer" )
-				.set( "spark.kryo.registrator", Registrator.class.getName() );
+				.set( "spark.kryo.registrator", Registrator.class.getName() )
+				;
 
 		final JavaSparkContext sc = new JavaSparkContext( conf );
 		sc.setLogLevel( "OFF" );
@@ -250,37 +251,56 @@ public class RegionMergingExample
 		final long nBlocks = graph.count();
 		System.out.println( "Starting with " + nBlocks + " blocks." );
 
-		final MergesAccumulator accu = new MergesAccumulator();
-		sc.sc().register( accu, "mergesAccumulator" );
+		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, 2 );
 
-		final IntFunction< MergeNotifyWithFinishNotification > mergeNotifyGenerator = new MergeNotifyGenerator( accu );
-
-
-		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, mergeNotifyGenerator, 2 );
-
-		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
+		final Options options = new BlockedRegionMergingSpark.Options( 1.0, StorageLevel.MEMORY_ONLY() );
 
 		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
+
+		final ArrayList< HashMapStoreUnionFind > ufsList = new ArrayList<>();
+		final ArrayList< TLongArrayList> mergesByIteration = new ArrayList<>();
 
 		final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > > mergesLogger = ( i, rdd ) -> {
 			final TLongArrayList merges = new TLongArrayList();
 			rdd.values().collect().stream().map( Tuple2::_1 ).forEach( merges::addAll );
 			final int newIndex = mergesLog.size();
 			mergesLog.put( newIndex, merges );
+			final String baseDirPath = mergesBaseDir + File.separator + i;
+			rdd.map( tuple -> {
+				final long[] position = tuple._1().getData();
+				final String subDir = baseDirPath + File.separator + String.join( File.separator, Arrays.stream( position ).mapToObj( pos -> String.format( "%d", pos ) ).limit( position.length - 1 ).collect( Collectors.toList() ) );
+				final String file = subDir + File.separator + position[ position.length - 1 ];
+				new File( subDir ).mkdirs();
+
+				final StringBuilder sb = new StringBuilder();
+				sb.append( "weight,from,to" );
+
+				final TLongArrayList mgs = tuple._2()._1();
+				for ( int merge = 0; merge < mgs.size(); merge += RegionMerging.MERGES_LOG_STEP_SIZE )
+					sb
+					.append( "\n" ).append( Edge.ltd( mgs.get( merge + RegionMerging.MERGES_LOG_WEIGHT_OFFSET ) ) )
+					.append( "," ).append( mgs.get( merge + RegionMerging.MERGES_LOG_FROM_OFFSET ) )
+					.append( "," ).append( mgs.get( merge + RegionMerging.MERGES_LOG_TO_OFFSET ) );
+
+				Files.write( Paths.get( file ), sb.toString().getBytes() );
+
+				return true;
+			} ).count();
+
+			mergesByIteration.add( merges );
+
 		};
 
 		System.out.println( "Start agglomerating!" );
 		rm.agglomerate( sc, graph, mergesLogger, options );
 		System.out.println( "Done agglomerating!" );
 
-		final TIntObjectHashMap< TLongArrayList > merges = accu.value();
-
-		final HashMapStoreUnionFind[] ufs = Stream.generate( HashMapStoreUnionFind::new ).limit( merges.size() ).toArray( HashMapStoreUnionFind[]::new );
+		final HashMapStoreUnionFind[] ufs = Stream.generate( HashMapStoreUnionFind::new ).limit( mergesByIteration.size() ).toArray( HashMapStoreUnionFind[]::new );
 
 		for ( int iteration = 0; iteration < ufs.length; ++iteration )
 		{
 
-			final TLongArrayList list = merges.get( iteration );
+			final TLongArrayList list = mergesByIteration.get( iteration );
 
 			System.out.println( "Got " + list.size() / 4 + " merges!" );
 
@@ -496,50 +516,6 @@ public class RegionMergingExample
 					nonContractingEdges,
 					counts );
 		}
-	}
-
-	public static class MergeNotifyGenerator implements IntFunction< MergeNotifyWithFinishNotification >, Serializable
-	{
-
-		private final MergesAccumulator merges;
-
-		public MergeNotifyGenerator( final MergesAccumulator merges )
-		{
-			super();
-			this.merges = merges;
-		}
-
-		@Override
-		public MergeNotifyWithFinishNotification apply( final int value )
-		{
-			final TLongArrayList mergesInBlock = new TLongArrayList();
-			return new MergeNotifyWithFinishNotification()
-			{
-
-				@Override
-				public void addMerge( final long node1, final long node2, final long newNode, final double weight )
-				{
-					mergesInBlock.add( node1 );
-					mergesInBlock.add( node2 );
-					mergesInBlock.add( newNode );
-					mergesInBlock.add( Double.doubleToRawLongBits( weight ) );
-//					System.out.println( "Added merge " + node1 + " " + node2 + " " + newNode + " " + weight );
-				}
-
-				@Override
-				public void notifyDone()
-				{
-					synchronized ( merges )
-					{
-						final TIntObjectHashMap< TLongArrayList > m = new TIntObjectHashMap<>();
-						m.put( value, mergesInBlock );
-						merges.add( m );
-					}
-					System.out.println( "Added " + mergesInBlock.size() / 4 + " merges at iteration " + value );
-				}
-			};
-		}
-
 	}
 
 	public static class MergesAccumulator extends AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > >

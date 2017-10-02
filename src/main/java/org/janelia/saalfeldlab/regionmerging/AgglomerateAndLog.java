@@ -1,6 +1,5 @@
 package org.janelia.saalfeldlab.regionmerging;
 
-import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -9,20 +8,14 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.IntFunction;
 
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.serializer.KryoRegistrator;
-import org.apache.spark.util.AccumulatorV2;
 import org.janelia.saalfeldlab.graph.edge.EdgeCreator;
 import org.janelia.saalfeldlab.graph.edge.EdgeMerger;
 import org.janelia.saalfeldlab.graph.edge.EdgeWeight;
-import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark;
-import org.janelia.saalfeldlab.regionmerging.DataPreparation;
-import org.janelia.saalfeldlab.regionmerging.HashWrapper;
-import org.janelia.saalfeldlab.regionmerging.MergeNotifyWithFinishNotification;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Data;
 import org.janelia.saalfeldlab.regionmerging.BlockedRegionMergingSpark.Options;
 import org.janelia.saalfeldlab.regionmerging.DataPreparation.Loader;
@@ -35,10 +28,8 @@ import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 
-import gnu.trove.iterator.TIntObjectIterator;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
-import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import net.imglib2.Cursor;
@@ -142,12 +133,7 @@ public class AgglomerateAndLog
 			final double[] thresholds,
 			final BiConsumer< Integer, JavaPairRDD< HashWrapper< long[] >, Tuple2< TLongArrayList, HashMapStoreUnionFind > > >[] mergesLogger )
 	{
-		final MergesAccumulator accu = new MergesAccumulator();
-		sc.sc().register( accu, "mergesAccumulator" );
-
-		final IntFunction< MergeNotifyWithFinishNotification > mergeNotifyGenerator = new MergeNotifyGenerator( accu );
-
-		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, mergeNotifyGenerator, 2 );
+		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, 2 );
 
 		System.out.println( "Start agglomerating!" );
 		for ( int i = 0; i < thresholds.length; ++i )
@@ -318,127 +304,6 @@ public class AgglomerateAndLog
 
 	}
 
-	public static class MergeNotifyGenerator implements IntFunction< MergeNotifyWithFinishNotification >, Serializable
-	{
 
-		private final MergesAccumulator merges;
-
-		public MergeNotifyGenerator( final MergesAccumulator merges )
-		{
-			super();
-			this.merges = merges;
-		}
-
-		@Override
-		public MergeNotifyWithFinishNotification apply( final int value )
-		{
-			final TLongArrayList mergesInBlock = new TLongArrayList();
-			return new MergeNotifyWithFinishNotification()
-			{
-
-				@Override
-				public void addMerge( final long node1, final long node2, final long newNode, final double weight )
-				{
-					mergesInBlock.add( node1 );
-					mergesInBlock.add( node2 );
-					mergesInBlock.add( newNode );
-					mergesInBlock.add( Double.doubleToRawLongBits( weight ) );
-//					System.out.println( "Added merge " + node1 + " " + node2 + " " + newNode + " " + weight );
-				}
-
-				@Override
-				public void notifyDone()
-				{
-					synchronized ( merges )
-					{
-						final TIntObjectHashMap< TLongArrayList > m = new TIntObjectHashMap<>();
-						m.put( value, mergesInBlock );
-						merges.add( m );
-					}
-					System.out.println( "Added " + mergesInBlock.size() / 4 + " merges at iteration " + value );
-				}
-			};
-		}
-
-	}
-
-	public static class MergesAccumulator extends AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > >
-	{
-
-		private final TIntObjectHashMap< TLongArrayList > data;
-
-		public MergesAccumulator()
-		{
-			this( new TIntObjectHashMap<>() );
-		}
-
-		public MergesAccumulator( final TIntObjectHashMap< TLongArrayList > data )
-		{
-			super();
-			this.data = data;
-		}
-
-		@Override
-		public void add( final TIntObjectHashMap< TLongArrayList > data )
-		{
-			synchronized ( this.data )
-			{
-				for ( final TIntObjectIterator< TLongArrayList > it = data.iterator(); it.hasNext(); )
-				{
-					it.advance();
-					if ( !this.data.contains( it.key() ) )
-						this.data.put( it.key(), new TLongArrayList() );
-					this.data.get( it.key() ).addAll( it.value() );
-				}
-			}
-		}
-
-		@Override
-		public AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > > copy()
-		{
-			synchronized ( data )
-			{
-				final TIntObjectHashMap< TLongArrayList > copy = new TIntObjectHashMap<>( data );
-				return new MergesAccumulator( copy );
-			}
-		}
-
-		@Override
-		public boolean isZero()
-		{
-			synchronized ( data )
-			{
-				return data.size() == 0;
-			}
-		}
-
-		@Override
-		public void merge( final AccumulatorV2< TIntObjectHashMap< TLongArrayList >, TIntObjectHashMap< TLongArrayList > > other )
-		{
-			synchronized ( data )
-			{
-				add( other.value() );
-			}
-		}
-
-		@Override
-		public void reset()
-		{
-			synchronized ( data )
-			{
-				this.data.clear();
-			}
-		}
-
-		@Override
-		public TIntObjectHashMap< TLongArrayList > value()
-		{
-			synchronized ( data )
-			{
-				return data;
-			}
-		}
-
-	}
 
 }

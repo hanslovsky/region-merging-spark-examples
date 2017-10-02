@@ -7,7 +7,7 @@ import ch.systemsx.cisd.base.mdarray.MDFloatArray;
 import ch.systemsx.cisd.hdf5.IHDF5FloatReader;
 import ch.systemsx.cisd.hdf5.IHDF5Reader;
 import net.imglib2.cache.img.CellLoader;
-import net.imglib2.img.Img;
+import net.imglib2.cache.img.SingleCellArrayImg;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.util.Intervals;
 import net.imglib2.view.Views;
@@ -26,7 +26,7 @@ public class HDF5FloatLoader implements CellLoader< FloatType >
 	}
 
 	@Override
-	public void load( final Img< FloatType > cell ) throws Exception
+	public void load( final SingleCellArrayImg< FloatType, ? > cell ) throws Exception
 	{
 		final MDFloatArray targetCell = reader.readMDArrayBlockWithOffset(
 				dataset,
