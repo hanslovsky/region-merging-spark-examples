@@ -253,7 +253,7 @@ public class RegionMergingExample
 
 		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, 2 );
 
-		final Options options = new BlockedRegionMergingSpark.Options( 1.0, StorageLevel.MEMORY_ONLY() );
+		final Options options = new BlockedRegionMergingSpark.Options( 0.5, StorageLevel.MEMORY_ONLY() );
 
 		final TIntObjectHashMap< TLongArrayList > mergesLog = new TIntObjectHashMap<>();
 
@@ -308,10 +308,10 @@ public class RegionMergingExample
 			{
 
 				final HashMapStoreUnionFind uf = ufs[ ufIndex ];
-				for ( int i = 0; i < list.size(); i += 4 )
+				for ( int i = 0; i < list.size(); i += RegionMerging.MERGES_LOG_STEP_SIZE )
 				{
-					final long r1 = uf.findRoot( list.get( i + 0 ) );
-					final long r2 = uf.findRoot( list.get( i + 1 ) );
+					final long r1 = uf.findRoot( list.get( i + RegionMerging.MERGES_LOG_FROM_OFFSET ) );
+					final long r2 = uf.findRoot( list.get( i + RegionMerging.MERGES_LOG_TO_OFFSET ) );
 //				System.out.println( list.get( i ) + " " + list.get( i + 1 ) + " " + r1 + " " + r2 );
 					if ( r1 != r2 )
 						uf.join( r1, r2 );
