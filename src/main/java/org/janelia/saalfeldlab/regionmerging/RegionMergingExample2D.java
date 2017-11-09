@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.apache.spark.SparkConf;
@@ -32,6 +33,7 @@ import com.sun.javafx.application.PlatformImpl;
 
 import bdv.bigcat.viewer.atlas.Atlas;
 import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
+import bdv.img.cache.VolatileGlobalCellCache;
 import bdv.img.h5.H5Utils;
 import bdv.util.Prefs;
 import gnu.trove.list.array.TDoubleArrayList;
@@ -54,6 +56,7 @@ import net.imglib2.type.Type;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.LongType;
 import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.type.volatiles.VolatileARGBType;
 import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
 import net.imglib2.view.Views;
@@ -143,18 +146,29 @@ public class RegionMergingExample2D
 			t.set( colors.get( s.get() ) );
 		};
 
+		final Converter< ARGBType, VolatileARGBType > convertVolatile = ( s, t ) -> t.get().set( s );
+		final Function< RandomAccessibleInterval< ARGBType >, RandomAccessibleInterval< VolatileARGBType > > makeVolatile = s -> Converters.convert( s, convertVolatile, new VolatileARGBType() );
+
 		PlatformImpl.startup( () -> {} );
-		final Atlas atlas = new Atlas( labels );
+		final Atlas atlas = new Atlas( labels, new VolatileGlobalCellCache( 1, 12 ) );
 		Platform.runLater( () -> {
 			final Stage stage = new Stage();
-			atlas.start( stage );
+			try
+			{
+				atlas.start( stage );
+			}
+			catch ( final InterruptedException e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 			stage.show();
-			final RandomAccessibleIntervalSpec< ARGBType, ARGBType > spec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { rgbAffs }, new RandomAccessibleInterval[] { rgbAffs }, resolution, null, "affs" );
-			atlas.addARGB( spec );
+			final RandomAccessibleIntervalSpec< ARGBType, VolatileARGBType > spec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { rgbAffs }, new RandomAccessibleInterval[] { makeVolatile.apply( rgbAffs ) }, resolution, null, "affs" );
+			atlas.addARGBSource( spec );
 
 			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( labels, colorConv, new ARGBType() );
-			final RandomAccessibleIntervalSpec< ?, ARGBType > voxelSpec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { labels }, new RandomAccessibleInterval[] { colored }, resolution, null, "super voxels " );
-			atlas.addARGB( voxelSpec );
+			final RandomAccessibleIntervalSpec< ?, VolatileARGBType > voxelSpec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { labels }, new RandomAccessibleInterval[] { makeVolatile.apply( colored ) }, resolution, null, "super voxels " );
+			atlas.addARGBSource( voxelSpec );
 		} );
 
 		final int nBins = 256;
@@ -245,7 +259,7 @@ public class RegionMergingExample2D
 //				uf.join( r1, r2 );
 //		}
 
-		final ArrayList< RandomAccessibleIntervalSpec< LongType, ARGBType > > raiSpecs = new ArrayList<>();
+		final ArrayList< RandomAccessibleIntervalSpec< LongType, VolatileARGBType > > raiSpecs = new ArrayList<>();
 
 		for ( int i = 0; i < ufs.length; ++i )
 		{
@@ -254,11 +268,11 @@ public class RegionMergingExample2D
 				t.set( uf.findRoot( s.get() ) );
 			}, new LongType() );
 			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( firstJoined, colorConv, new ARGBType() );
-			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { colored }, resolution, null, "iteration " + i ) );
+			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { makeVolatile.apply( colored ) }, resolution, null, "iteration " + i ) );
 		}
 
 		Platform.runLater( () -> {
-			raiSpecs.forEach( atlas::addARGB );
+			raiSpecs.forEach( atlas::addARGBSource );
 		} );
 
 
