@@ -30,7 +30,6 @@ import com.esotericsoftware.kryo.io.Output;
 
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
-import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccessible;
@@ -186,11 +185,6 @@ public class AgglomerateAndLog
 				output.writeInt( entry.getValue().size() );
 				output.writeInts( entry.getValue().toArray() );
 			}
-
-			// counts
-			output.writeInt( object.counts().size() );
-			output.writeLongs( object.counts().keys() );
-			output.writeLongs( object.counts().values() );
 		}
 
 		@Override
@@ -215,15 +209,9 @@ public class AgglomerateAndLog
 				nonContractingEdges.put( key, value );
 			}
 
-			// counts
-			final int numNodes = input.readInt();
-			final long[] keys = input.readLongs( numNodes );
-			final long[] values = input.readLongs( numNodes );
-			final TLongLongHashMap counts = new TLongLongHashMap( keys, values );
 			return new Data(
 					edgeStore,
-					nonContractingEdges,
-					counts );
+					nonContractingEdges );
 		}
 	}
 

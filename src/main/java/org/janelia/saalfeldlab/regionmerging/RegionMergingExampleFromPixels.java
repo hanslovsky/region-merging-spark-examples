@@ -446,10 +446,6 @@ public class RegionMergingExampleFromPixels
 				output.writeInts( entry.getValue().toArray() );
 			}
 
-			// counts
-			output.writeInt( object.counts().size() );
-			output.writeLongs( object.counts().keys() );
-			output.writeLongs( object.counts().values() );
 		}
 
 		@Override
@@ -474,15 +470,9 @@ public class RegionMergingExampleFromPixels
 				nonContractingEdges.put( key, value );
 			}
 
-			// counts
-			final int numNodes = input.readInt();
-			final long[] keys = input.readLongs( numNodes );
-			final long[] values = input.readLongs( numNodes );
-			final TLongLongHashMap counts = new TLongLongHashMap( keys, values );
 			return new Data(
 					edgeStore,
-					nonContractingEdges,
-					counts );
+					nonContractingEdges );
 		}
 	}
 

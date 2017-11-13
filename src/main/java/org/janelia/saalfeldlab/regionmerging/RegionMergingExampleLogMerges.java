@@ -253,10 +253,6 @@ public class RegionMergingExampleLogMerges
 				output.writeInts( entry.getValue().toArray() );
 			}
 
-			// counts
-			output.writeInt( object.counts().size() );
-			output.writeLongs( object.counts().keys() );
-			output.writeLongs( object.counts().values() );
 		}
 
 		@Override
@@ -288,8 +284,7 @@ public class RegionMergingExampleLogMerges
 			final TLongLongHashMap counts = new TLongLongHashMap( keys, values );
 			return new Data(
 					edgeStore,
-					nonContractingEdges,
-					counts );
+					nonContractingEdges );
 		}
 	}
 
@@ -314,12 +309,12 @@ public class RegionMergingExampleLogMerges
 			final StringBuilder sb = new StringBuilder();
 			for ( int index = 0; index < merges.size(); index += step )
 				sb
-						.append( Double.longBitsToDouble( merges.get( index + 1 ) ) )
-						.append( "," )
-						.append( merges.get( index + 2 ) )
-						.append( "," )
-						.append( merges.get( index + 3 ) )
-						.append( System.lineSeparator() );
+				.append( Double.longBitsToDouble( merges.get( index + 1 ) ) )
+				.append( "," )
+				.append( merges.get( index + 2 ) )
+				.append( "," )
+				.append( merges.get( index + 3 ) )
+				.append( System.lineSeparator() );
 			return sb.toString();
 		}
 

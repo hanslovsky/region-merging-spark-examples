@@ -56,7 +56,6 @@ import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.map.hash.TLongIntHashMap;
-import gnu.trove.map.hash.TLongLongHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import javafx.application.Platform;
 import javafx.stage.Stage;
@@ -494,10 +493,6 @@ public class RegionMergingExample
 				output.writeInts( entry.getValue().toArray() );
 			}
 
-			// counts
-			output.writeInt( object.counts().size() );
-			output.writeLongs( object.counts().keys() );
-			output.writeLongs( object.counts().values() );
 		}
 
 		@Override
@@ -522,15 +517,9 @@ public class RegionMergingExample
 				nonContractingEdges.put( key, value );
 			}
 
-			// counts
-			final int numNodes = input.readInt();
-			final long[] keys = input.readLongs( numNodes );
-			final long[] values = input.readLongs( numNodes );
-			final TLongLongHashMap counts = new TLongLongHashMap( keys, values );
 			return new Data(
 					edgeStore,
-					nonContractingEdges,
-					counts );
+					nonContractingEdges );
 		}
 	}
 
