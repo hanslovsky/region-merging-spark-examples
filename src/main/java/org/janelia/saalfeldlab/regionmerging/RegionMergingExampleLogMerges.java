@@ -195,7 +195,8 @@ public class RegionMergingExampleLogMerges
 		};
 
 		System.out.println( "Start agglomerating!" );
-		rm.agglomerate( sc, graph, mergesLogger, options );
+		final JavaPairRDD< HashWrapper< long[] >, Data >[] intermediate = new JavaPairRDD[ 1 ];
+		rm.agglomerate( sc, graph, mergesLogger, options, ( iteration, rdd ) -> intermediate[ 0 ] = rdd, ( iteration, keys ) -> intermediate[ 0 ] );
 		System.out.println( "Done agglomerating!" );
 
 

@@ -135,10 +135,11 @@ public class AgglomerateAndLog
 		final BlockedRegionMergingSpark rm = new BlockedRegionMergingSpark( merger, edgeWeight, 2 );
 
 		System.out.println( "Start agglomerating!" );
+		final JavaPairRDD< HashWrapper< long[] >, Data >[] intermediate = new JavaPairRDD[ 1 ];
 		for ( int i = 0; i < thresholds.length; ++i )
 		{
 			final Options opts = options.copy().threshold( thresholds[ i ] );
-			rm.agglomerate( sc, blockedGraph, mergesLogger[ i ], opts );
+			rm.agglomerate( sc, blockedGraph, mergesLogger[ i ], opts, ( iteration, rdd ) -> intermediate[ 0 ] = rdd, ( iteration, keys ) -> intermediate[ 0 ] );
 		}
 		System.out.println( "Done agglomerating!" );
 	}

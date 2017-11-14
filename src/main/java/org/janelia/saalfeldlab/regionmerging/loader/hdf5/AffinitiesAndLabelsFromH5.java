@@ -14,6 +14,8 @@ import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.img.cell.CellGrid;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.integer.LongType;
+import net.imglib2.type.numeric.integer.UnsignedByteType;
+import net.imglib2.type.numeric.integer.UnsignedIntType;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.util.Pair;
 import net.imglib2.util.ValuePair;
@@ -64,8 +66,12 @@ public class AffinitiesAndLabelsFromH5
 		final CellGrid grid = new CellGrid( dims, chunkSize );
 		if ( t instanceof FloatType )
 			return Optional.of( new ValuePair<>( ( CellLoader< T > ) ( reverseLastDimension ? new HDF5FloatLoaderFlipLastDimension( reader, path ) : new HDF5FloatLoader( reader, path ) ), grid ) );
+		else if ( t instanceof UnsignedIntType )
+			return Optional.of( new ValuePair<>( ( CellLoader< T > ) new HDF5UnsignedIntLoader( reader, path), grid ) );
 		else if ( t instanceof LongType )
 			return Optional.of( new ValuePair<>( ( CellLoader< T > ) new HDF5LongLoader( reader, path ), grid ) );
+		else if ( t instanceof UnsignedByteType )
+			return Optional.of( new ValuePair<>( ( CellLoader< T > ) new HDF5UnsignedByteLoader( reader, path), grid ) );
 		return Optional.empty();
 	}
 

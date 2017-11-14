@@ -1,6 +1,5 @@
 package org.janelia.saalfeldlab.regionmerging;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
@@ -35,10 +34,12 @@ import com.esotericsoftware.kryo.io.Output;
 import com.sun.javafx.application.PlatformImpl;
 
 import bdv.bigcat.viewer.atlas.Atlas;
-import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalSpec;
-import bdv.img.cache.VolatileGlobalCellCache;
+import bdv.bigcat.viewer.atlas.data.LabelDataSourceFromDelegates;
+import bdv.bigcat.viewer.atlas.data.RandomAccessibleIntervalDataSource;
+import bdv.bigcat.viewer.state.FragmentSegmentAssignmentWithHistory;
 import bdv.img.hdf5.Util;
 import bdv.util.Prefs;
+import bdv.util.volatiles.SharedQueue;
 import ch.systemsx.cisd.hdf5.HDF5DataSetInformation;
 import ch.systemsx.cisd.hdf5.HDF5Factory;
 import ch.systemsx.cisd.hdf5.HDF5StorageLayout;
@@ -62,17 +63,19 @@ import net.imglib2.cache.img.LoadedCellCacheLoader;
 import net.imglib2.cache.ref.SoftRefLoaderCache;
 import net.imglib2.converter.Converter;
 import net.imglib2.converter.Converters;
-import net.imglib2.converter.TypeIdentity;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.FloatArray;
 import net.imglib2.img.basictypeaccess.array.LongArray;
 import net.imglib2.img.cell.Cell;
 import net.imglib2.img.cell.CellGrid;
+import net.imglib2.realtransform.AffineTransform3D;
 import net.imglib2.type.Type;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.LongType;
+import net.imglib2.type.numeric.integer.UnsignedLongType;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.type.volatiles.VolatileARGBType;
+import net.imglib2.type.volatiles.VolatileUnsignedLongType;
 import net.imglib2.util.IntervalIndexer;
 import net.imglib2.util.Intervals;
 import net.imglib2.util.Pair;
@@ -165,10 +168,16 @@ public class RegionMergingExampleFromPixels
 		};
 		final Converter< ARGBType, VolatileARGBType > convertVolatile = ( s, t ) -> t.get().set( s );
 		final Function< RandomAccessibleInterval< ARGBType >, RandomAccessibleInterval< VolatileARGBType > > makeVolatile = s -> Converters.convert( s, convertVolatile, new VolatileARGBType() );
+		final AffineTransform3D[] mipmapTransforms = new AffineTransform3D[] {
+				new AffineTransform3D()
+		};
+		mipmapTransforms[0].set( 4, 0, 0 );
+		mipmapTransforms[0].set( 4, 1, 1 );
+		mipmapTransforms[0].set( 40, 2, 2 );
 
 		PlatformImpl.startup( () -> {} );
 		Platform.setImplicitExit( true );
-		final Atlas atlas = new Atlas( labels, new VolatileGlobalCellCache( 1, 12 ) );
+		final Atlas atlas = new Atlas( labels, new SharedQueue( 12, 1 ) );
 		Platform.runLater( () -> {
 			final Stage stage = new Stage();
 			try
@@ -181,12 +190,42 @@ public class RegionMergingExampleFromPixels
 				e.printStackTrace();
 			}
 			stage.show();
-			final RandomAccessibleIntervalSpec< ARGBType, VolatileARGBType > spec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { rgbAffs }, new RandomAccessibleInterval[] { makeVolatile.apply( rgbAffs ) }, resolution, null, "affs" );
+			final RandomAccessibleIntervalDataSource< ARGBType, VolatileARGBType > spec = new RandomAccessibleIntervalDataSource<>(
+					new RandomAccessibleInterval[] { rgbAffs },
+					new RandomAccessibleInterval[] { makeVolatile.apply( rgbAffs ) },
+					mipmapTransforms,
+					RegionMergingExample.makeFactory( new ARGBType() ),
+					RegionMergingExample.makeFactory( new VolatileARGBType() ),
+					ARGBType::new,
+					VolatileARGBType::new,
+					"affs"
+					);
 			atlas.addARGBSource( spec );
 
-			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( labels, colorConv, new ARGBType() );
-			final RandomAccessibleIntervalSpec< ?, VolatileARGBType > voxelSpec = new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { labels }, new RandomAccessibleInterval[] { makeVolatile.apply( colored ) }, resolution, null, "super voxels " );
-			atlas.addARGBSource( voxelSpec );
+			final RandomAccessibleInterval< UnsignedLongType > unsigned = Converters.convert( labels, ( s, t ) -> t.set( s.getIntegerLong() ), new UnsignedLongType() );
+			final RandomAccessibleInterval< VolatileUnsignedLongType > volatileUnsigned = RegionMergingExampleFromFile.makeVolatile( Converters.convert( labels, ( s, t ) -> t.set( s.getIntegerLong() ), new UnsignedLongType() ), VolatileUnsignedLongType::new );
+			final RandomAccessibleIntervalDataSource< UnsignedLongType, VolatileUnsignedLongType > voxelSpec = new RandomAccessibleIntervalDataSource<>(
+					new RandomAccessibleInterval[] { unsigned },
+					new RandomAccessibleInterval[] { volatileUnsigned },
+					mipmapTransforms,
+					RegionMergingExample.makeFactory( new UnsignedLongType() ),
+					RegionMergingExample.makeFactory( new VolatileUnsignedLongType() ),
+					UnsignedLongType::new,
+					VolatileUnsignedLongType::new,
+					"super voxels " );
+			final LabelDataSourceFromDelegates< UnsignedLongType, VolatileUnsignedLongType > delegated = new LabelDataSourceFromDelegates<>( voxelSpec, new FragmentSegmentAssignmentWithHistory( x -> {}, () -> {
+				try
+				{
+					Thread.sleep( Integer.MAX_VALUE );
+				}
+				catch ( final InterruptedException e )
+				{
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				return new TLongLongHashMap();
+			}) );
+			atlas.addLabelSource( delegated, t -> t.get().getIntegerLong() );
 		} );
 //		for ( final FloatType a : Views.hyperSlice( affs, 3, 2l ) )
 //			a.mul( factor );
@@ -259,7 +298,8 @@ public class RegionMergingExampleFromPixels
 		};
 
 		System.out.println( "Start agglomerating!" );
-		rm.agglomerate( sc, graph, mergesLogger, options );
+		final JavaPairRDD< HashWrapper< long[] >, Data >[] intermediate = new JavaPairRDD[ 1 ];
+		rm.agglomerate( sc, graph, mergesLogger, options, ( iteration, rdd ) -> intermediate[ 0 ] = rdd, ( iteration, keys ) -> intermediate[ 0 ] );
 		System.out.println( "Done agglomerating!" );
 
 		final TIntObjectHashMap< TLongArrayList > merges = mergesLog;
@@ -299,21 +339,21 @@ public class RegionMergingExampleFromPixels
 //				uf.join( r1, r2 );
 //		}
 
-		final ArrayList< RandomAccessibleIntervalSpec< LongType, VolatileARGBType > > raiSpecs = new ArrayList<>();
-
-		for ( int i = ufs.length - 1; i < ufs.length; ++i )
-		{
-			final HashMapStoreUnionFind uf = ufs[ i ];
-			final RandomAccessibleInterval< LongType > firstJoined = Converters.convert( labels, ( s, t ) -> {
-				t.set( uf.findRoot( s.get() ) );
-			}, new LongType() );
-			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( firstJoined, colorConv, new ARGBType() );
-			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { makeVolatile.apply( colored ) }, resolution, null, "iteratrion " + i ) );
-		}
-
-		Platform.runLater( () -> {
-			raiSpecs.forEach( atlas::addARGBSource );
-		} );
+//		final ArrayList< RandomAccessibleIntervalSpec< LongType, VolatileARGBType > > raiSpecs = new ArrayList<>();
+//
+//		for ( int i = ufs.length - 1; i < ufs.length; ++i )
+//		{
+//			final HashMapStoreUnionFind uf = ufs[ i ];
+//			final RandomAccessibleInterval< LongType > firstJoined = Converters.convert( labels, ( s, t ) -> {
+//				t.set( uf.findRoot( s.get() ) );
+//			}, new LongType() );
+//			final RandomAccessibleInterval< ARGBType > colored = Converters.convert( firstJoined, colorConv, new ARGBType() );
+//			raiSpecs.add( new RandomAccessibleIntervalSpec<>( new TypeIdentity<>(), new RandomAccessibleInterval[] { firstJoined }, new RandomAccessibleInterval[] { makeVolatile.apply( colored ) }, resolution, null, "iteratrion " + i ) );
+//		}
+//
+//		Platform.runLater( () -> {
+//			raiSpecs.forEach( atlas::addARGBSource );
+//		} );
 
 
 
